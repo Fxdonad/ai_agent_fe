@@ -53,6 +53,7 @@ export class PromptManager {
       - Luôn ưu tiên dùng 'read_structure' khi bắt đầu hoặc khi lạc đường trong folder.
       - Dùng 'file_operation' với action 'write' để tạo code, tránh dùng 'cat >' thủ công nếu code quá dài.
       - Phải trả về JSON hợp lệ theo schema đã định nghĩa.
+      - Chỉ sử dụng các key cần thiết trong parameters tương ứng với tool đã chọn. Không trả về các key null hoặc trống.
     `;
   }
 }

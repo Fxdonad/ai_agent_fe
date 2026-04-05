@@ -5,6 +5,7 @@ import { DockerService } from "../core/docker.service.js";
 import { BrowserService } from "../core/browser.service.js";
 import { PromptManager } from "./prompt.manager.js";
 import * as fs from "node:fs";
+import { Nemotron3Nano4bConfig } from "../model/nemotron-3-nano-4b.response.js";
 
 export class AgentEngine {
   private messages: any[] = [];
@@ -39,6 +40,8 @@ export class AgentEngine {
     for (let i = 0; i < 30; i++) {
       try {
         const response = await this.askLLM();
+
+        console.log(`\n📨 Phản hồi từ LLM:\n${response}`);
         const decision = this.parseResponse(response);
         if (!decision) continue;
 
@@ -198,6 +201,7 @@ export class AgentEngine {
 
   private async handleDocker(decision: any) {
     const cmd = decision.parameters.command;
+    let finalCmd = cmd;
     const timestamp = new Date().toISOString();
 
     try {
@@ -205,13 +209,30 @@ export class AgentEngine {
       // Ghi cả lệnh vào log file trên máy host
       fs.appendFileSync("agent_execution.log", `[${timestamp}] EXEC: ${cmd}\n`);
 
-      let finalCmd = cmd;
-      if (cmd.includes("npm run dev") || cmd.includes("vite")) {
-        console.log("⚠️ Chạy Server background...");
-        finalCmd = `${cmd} > server.log 2>&1 &`;
+      const isServerCommand =
+        (cmd.includes("npm run dev") || cmd.includes("vite")) &&
+        !cmd.includes("create-vite") && // Loại trừ lệnh khởi tạo
+        !cmd.includes("npm install"); // Loại trừ cài đặt
+
+      if (isServerCommand) {
+        console.log(
+          "⚠️ Phát hiện lệnh chạy Server, đang chuyển sang Background...",
+        );
+        finalCmd = `${cmd} > server.log 2>&1 & echo "SUCCESS: Server is running in background. Check logs at server.log"`;
+      } else {
+        // Các lệnh bình thường (install, create, ls, mkdir) PHẢI chạy đồng bộ để lấy kết quả
+        finalCmd = `(${cmd}) && echo "EXECUTION_COMPLETED"`;
       }
 
       const stdout = this.docker.execute(finalCmd);
+      const cleanStdout = stdout.trim();
+
+      // Nếu không có output, trả về thông báo xác nhận dựa trên exit code
+      const finalResponse =
+        cleanStdout || "Lệnh đã thực thi thành công (không có output).";
+
+      console.log(`✅ Kết quả:`, finalResponse);
+      this.addStep(decision, `Kết quả hệ thống:\n${finalResponse}`);
 
       // Ghi cả kết quả thành công vào log để sau này dễ audit
       fs.appendFileSync(
@@ -287,66 +308,22 @@ export class AgentEngine {
     const res = await axios.post(
       this.LMS_URL,
       {
-        model: "gemma-3-4b",
+        model: Nemotron3Nano4bConfig.modelName,
         messages: this.messages,
         temperature: 0.1,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "tool_call",
-            strict: true,
-            schema: {
-              type: "object",
-              properties: {
-                thought: { type: "string" },
-                tool: {
-                  type: "string",
-                  enum: [
-                    "execute_command",
-                    "web_search",
-                    "ask_human",
-                    "respond_to_user",
-                    "read_structure",
-                    "file_operation",
-                    "debug_service",
-                    "done",
-                  ],
-                },
-                parameters: {
-                  type: "object",
-                  properties: {
-                    // Nhóm 1: Command & Search
-                    command: { type: "string" },
-                    query: { type: "string" },
-
-                    // Nhóm 2: File System
-                    action: {
-                      type: "string",
-                      enum: ["read", "write", "delete", "mkdir", "list"],
-                    },
-                    path: { type: "string" },
-                    content: { type: "string" },
-
-                    // Nhóm 3: Debug (Đã đưa VÀO TRONG parameters)
-                    type: {
-                      type: "string",
-                      enum: ["logs", "process", "network"],
-                    },
-                    lines: { type: "integer" },
-                  },
-                  // Quan trọng: Không để required ở đây để tránh lỗi chéo giữa các tool
-                  additionalProperties: false,
-                },
-              },
-              required: ["thought", "tool", "parameters"],
-            },
-          },
-        },
+        response_format: Nemotron3Nano4bConfig.structureResponse,
       },
       { timeout: 120000 },
     );
 
-    return res.data.choices[0].message.content;
+    const message = res.data.choices[0].message;
+    console.log(`\n📊 Thông tin phản hồi từ LLM:`, message);
+
+    // CHUẨN HÓA TẠI ĐÂY: Ưu tiên lấy content, nếu trống thì lấy reasoning_content
+    // Một số model đẩy JSON vào content, số khác (như Nemotron/DeepSeek) đẩy vào reasoning_content
+    const rawContent = message.content || message.reasoning_content || "";
+
+    return rawContent;
   }
 
   private async handleDebugService(decision: any) {
@@ -358,23 +335,29 @@ export class AgentEngine {
       let result = "";
       switch (type) {
         case "logs":
-          // Đọc file log mà chúng ta đã đẩy output vào ở lệnh handleDocker
           result = this.docker.execute(
             `tail -n ${lines} server.log 2>/dev/null || echo "Chưa có file log nào được tạo."`,
           );
           break;
         case "process":
-          // Kiểm tra xem node/vite có đang chạy không
-          result = this.docker.execute(`ps aux | grep -E "node|vite|npm"`);
+          // Thêm "|| echo" để tránh throw error khi grep không thấy tiến trình
+          result = this.docker.execute(
+            `ps aux | grep -E "node|vite|npm" | grep -v grep || echo "Không có tiến trình liên quan đang chạy."`,
+          );
           break;
         case "network":
-          // Kiểm tra các port đang lắng nghe
-          result = this.docker.execute(`netstat -tuln || ss -tuln`);
+          // Tuyệt chiêu: Nếu không có netstat/ss, ta đọc trực tiếp file hệ thống nhưng format lại cho AI dễ hiểu
+          // Port 5173 (Hex: 1435), Port 5000 (Hex: 1388)
+          const checkPorts = `grep -E "1435|1388" /proc/net/tcp`;
+          result = this.docker.execute(
+            `${checkPorts} && echo "Phát hiện port đang Listen (mã Hex)." || netstat -tuln || ss -tuln || echo "Không tìm thấy port 5173/5000 đang mở."`,
+          );
           break;
       }
       this.addStep(decision, `Kết quả Debug (${type}):\n${result}`);
     } catch (e: any) {
-      this.addStep(decision, `Lỗi khi debug: ${e.message}`);
+      // Đảm bảo addStep vẫn ghi nhận dù có lỗi crash thực sự
+      this.addStep(decision, `Lỗi hệ thống khi debug: ${e.message}`);
     }
   }
 
@@ -406,16 +389,34 @@ export class AgentEngine {
   }
 
   private parseResponse(content: string) {
+    if (!content) return null;
+
     try {
-      const jsonStr = content.match(/\{[\s\S]*\}/)?.[0] || content;
+      // Tìm khối JSON đầu tiên xuất hiện trong chuỗi
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        // Nếu không có ngoặc nhọn, có thể AI trả về text thuần, ta bọc nó lại thành tool respond_to_user
+        return {
+          thought: "AI returned plain text, wrapping it.",
+          tool: "respond_to_user",
+          parameters: { content: content.trim() },
+        };
+      }
+
+      let jsonStr = jsonMatch[0];
+      // Làm sạch rác Markdown nếu có
+      jsonStr = jsonStr.replace(/```json/g, "").replace(/```/g, "");
+
       return JSON.parse(jsonStr);
-    } catch (err) {
+    } catch (err: any) {
       console.log(
-        "⚠️ AI trả về định dạng không phải JSON. Đang yêu cầu sửa lại...",
+        `⚠️ Lỗi Parser (${err.message}). AI trả về: ${content.substring(0, 100)}...`,
       );
+
+      // Đẩy thông báo lỗi chi tiết cho AI để nó tự sửa format
       this.messages.push({
         role: "user",
-        content: "Lỗi: Bạn phải trả về định dạng JSON hợp lệ theo schema.",
+        content: `Lỗi định dạng JSON: ${err.message}. Hãy chắc chắn bạn KHÔNG viết văn bản thừa bên ngoài khối JSON và các chuỗi string phải được escape đúng cách.`,
       });
       return null;
     }
