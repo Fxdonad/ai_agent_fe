@@ -1,10 +1,10 @@
 # Skill: Debug Service
 
-Sử dụng công cụ này khi bạn đã chạy một lệnh background (như npm run dev) nhưng không biết nó có chạy thành công hay không.
+Sử dụng công cụ này khi bạn đã chạy một lệnh background (như npm run dev, ...) nhưng không biết nó có chạy thành công hay không.
 
-- `type: logs`: Đọc 50 dòng cuối của file `server.log`. Đây là nơi chứa lỗi runtime của Vite/React.
+- `type: logs`: Đọc 50 dòng cuối của file `server.log`. nếu kiểm tra chưa tồn tại tại /home/agent/app/ thì hãy tạo mới nó tại /home/agent/app/server.log
 - `type: process`: Kiểm tra xem tiến trình có bị "die" giữa chừng không.
-- `type: network`: Kiểm tra xem Port 5173 đã sẵn sàng chưa.
+- `type: network`: Kiểm tra xem port được yêu cầu có vấn đề gì không, báo cho human về thông tin nếu có
 
 # Quy tắc Debug:
 

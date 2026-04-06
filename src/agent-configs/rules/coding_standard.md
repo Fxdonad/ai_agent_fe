@@ -1,27 +1,24 @@
-# Rules: Coding & Debugging
+# Tiêu chuẩn Lập trình & Vận hành Ubuntu (Docker Sandbox)
 
-1. Luôn kiểm tra sự tồn tại của file trước khi sửa.
-2. Nếu lệnh lỗi, đọc `stderr` và tự sửa code trong tối đa 3 lần thử.
-3. Cài đặt package thiếu bằng `npm install` ngay khi gặp lỗi 'module not found'.
+1. Tư duy chuẩn bị (Pre-flight Check)
 
-# Rules: Non-interactive Execution
+- **Kiến thức Môi trường**: Trước khi chạy lệnh, hãy xác nhận sự tồn tại của công cụ (ví dụ: which npm, which sudo). Agent phải biết mình đang ở trong một Image Docker Ubuntu rút gọn.
+- **Xác thực thư mục**: Luôn chạy pwd hoặc kiểm tra context để đảm bảo đang đứng tại /home/agent/app. Tuyệt đối không thao tác ngoài phạm vi thư mục người dùng trừ khi cài đặt thư viện hệ thống.
+- **Kiểm tra tài nguyên**: Trước khi đọc file, dùng ls -lh hoặc stat. Nếu file > 50KB, cấm dùng cat.
 
-- Mọi lệnh terminal PHẢI chạy ở chế độ non-interactive (không đợi nhập liệu).
-- Cài đặt npm: Luôn dùng `npm install --yes` hoặc `npm init -y`.
-- Khởi tạo dự án: Luôn dùng `--yes` hoặc `-y` (Ví dụ: `npx create-vite@latest my-app --template react-ts --yes`).
-- Xóa file/thư mục: Luôn dùng `rm -rf`.
-- Nếu lệnh yêu cầu quyền root, sử dụng `sudo` (vì đã cấu hình NOPASSWD).
+2. Thực thi lệnh Non-interactive (Bắt buộc)
 
-# Rules: Environment & Permissions
+- **Mọi lệnh phải đi kèm flag tự động xác nhận**: apt-get install -y, npm install --yes, rm -rf.
+- Tuyệt đối không chạy các lệnh mở shell tương tác (bash, sh, python không script) hoặc các lệnh đợi input từ stdin.
 
-1. User hiện tại là `agent`. Thư mục làm việc là `/home/agent/app` và tuyệt đối không xóa thư mục `/home/agent/app` này.
-2. Tuyệt đối KHÔNG sử dụng biến môi trường `$USER` trong các lệnh `chown` hoặc `chmod`.
-3. Nếu cần gán quyền, hãy viết đích danh user: `sudo chown -R agent:agent <path>`.
-4. Ưu tiên cài đặt local (không dùng `-g`) để tránh đụng chạm vào thư mục hệ thống `/usr/lib`.
+3. Quản lý Quyền hạn & Bảo mật Hệ thống
 
-# Rules: Critical Fixes
+- **Nguyên tắc Quyền hạn tối thiểu**: Chỉ dùng sudo khi thực sự cần thiết (cài đặt package hệ thống, chown file hệ thống).
+- **Định danh rõ ràng**: Không dùng biến môi trường $USER hay $(whoami). Khi chown, phải ghi rõ sudo chown -R agent:agent <path>.
+- **Bảo vệ Root**: Không được phép thay đổi mật khẩu root, cấu hình ssh, hoặc can thiệp vào các tiến trình bảo mật của Docker.
+- **Cài đặt Local**: Ưu tiên npm install (không -g) để giữ an toàn cho /usr/lib và /usr/bin.
 
-1. Tuyệt đối KHÔNG thử cài đặt lại Node.js, npm hoặc yarn bằng `apt-get`. Môi trường hệ thống là cố định.
-2. Tuyệt đối KHÔNG sử dụng lệnh `bash` hoặc các lệnh mở shell tương tác.
-3. Nếu gặp lỗi `ENOENT` hoặc `Permission Denied`, hãy kiểm tra thư mục hiện tại bằng `pwd` và `ls -la`, sau đó thử `mkdir -p` lại thư mục làm việc.
-4. Luôn kiểm tra xem mình có đang đứng đúng thư mục `/home/agent/app` không trước khi chạy `npm install`.
+4. Xử lý lỗi Hệ thống (Ubuntu Specific)
+
+- **Exit Code 254/1/127**: Phải phân tích stderr. Nếu thiếu lệnh (command not found), hãy thử sudo apt-get update && sudo apt-get install -y <package>.
+- **Lỗi ENOENT/Permission**: Kiểm tra cây thư mục bằng read_structure trước khi thử lại với mkdir -p.
