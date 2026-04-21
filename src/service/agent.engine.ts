@@ -78,8 +78,9 @@ export class AgentEngine {
 
         this.addStep(decision, result);
       } catch (err: any) {
-        const errorMsg = `Lỗi hệ thống: ${err.message}`;
-        this.logActivity("ERROR", errorMsg);
+        const errorMsg = `Lỗi hệ thống cuối cùng: ${err.message}`;
+        this.logActivity("FATAL_ERROR", errorMsg);
+        // Thêm thông báo cho AI biết lỗi để nó tự healing nếu có thể ở lượt sau
         this.addStep({ tool: "error", parameters: {} }, errorMsg);
       }
     }
@@ -89,6 +90,53 @@ export class AgentEngine {
     this.actionHistory.push(currentHash);
     if (this.actionHistory.length > this.MAX_HISTORY) this.actionHistory.shift();
     return this.actionHistory.filter(h => h === currentHash).length >= this.MAX_RETRY_SAME_ACTION;
+  }
+
+  /**
+   * Gọi LLM với cơ chế Exponential Backoff
+   * Giúp xử lý các lỗi tạm thời như Socket Hang Up hoặc Timeout khi VM đang tải nặng
+   */
+  private async askLLM(retryCount = 0): Promise<string> {
+    const maxRetries = 5;
+    const retryDelays = [1000, 2000, 4000, 8000, 16000]; // ms
+
+    try {
+      const res = await axios.post(
+        this.LMS_URL,
+        {
+          model: Gemma34bConfig.modelName,
+          messages: this.messages,
+          temperature: 0.1,
+          response_format: Gemma34bConfig.structureResponse,
+        },
+        { 
+          timeout: 240000, // 4 phút cho các task suy luận phức tạp
+          headers: { 'Connection': 'keep-alive' }
+        }
+      );
+
+      const content = res.data.choices[0].message.content || res.data.choices[0].message.reasoning_content || "";
+      if (!content) throw new Error("LLM trả về nội dung trống");
+      
+      return content;
+    } catch (err: any) {
+      const isNetworkError = err.code === 'ECONNRESET' || 
+                             err.message.includes('socket hang up') || 
+                             err.code === 'ETIMEDOUT' ||
+                             err.response?.status === 502 ||
+                             err.response?.status === 503;
+
+      if (isNetworkError && retryCount < maxRetries) {
+        const delay = retryDelays[retryCount];
+        console.log(`⚠️ Lỗi kết nối (${err.message}). Thử lại lần ${retryCount + 1}/${maxRetries} sau ${delay}ms...`);
+        this.logActivity("RETRY", { attempt: retryCount + 1, error: err.message });
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.askLLM(retryCount + 1);
+      }
+
+      throw err;
+    }
   }
 
   private async executeDecision(decision: any): Promise<string> {
@@ -117,7 +165,6 @@ export class AgentEngine {
 
       case "search_grep":
         this.logActivity("SEARCH", parameters);
-        // Tối ưu lệnh grep để không quét qua node_modules và các file binary
         const query = parameters.query;
         const path = parameters.path || ".";
         const grepCmd = `grep -rnI "${query}" ${path} --exclude-dir={.git,node_modules,dist,build} | head -n 50`;
@@ -138,7 +185,8 @@ export class AgentEngine {
         result = "Lỗi: Tool không được hỗ trợ.";
     }
 
-    this.logActivity("RESULT", result.substring(0, 500) + (result.length > 500 ? "..." : ""));
+    // Ghi lại kết quả thực thi vào log hệ thống để kiểm soát
+    this.logActivity("RESULT", result.substring(0, 1000) + (result.length > 1000 ? "..." : ""));
     return result;
   }
 
@@ -147,7 +195,6 @@ export class AgentEngine {
     
     switch (action) {
       case "write":
-        // Dùng Base64 để truyền dữ liệu code an toàn qua Shell
         const base64 = Buffer.from(content || "").toString("base64");
         return this.shell.execute(`
           mkdir -p "$(dirname "${filePath}")" && 
@@ -185,20 +232,6 @@ export class AgentEngine {
     }
   }
 
-  private async askLLM() {
-    const res = await axios.post(
-      this.LMS_URL,
-      {
-        model: Gemma34bConfig.modelName,
-        messages: this.messages,
-        temperature: 0.1,
-        response_format: Gemma34bConfig.structureResponse,
-      },
-      { timeout: 240000 }
-    );
-    return res.data.choices[0].message.content || res.data.choices[0].message.reasoning_content || "";
-  }
-
   private parseResponse(content: string) {
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -208,9 +241,29 @@ export class AgentEngine {
     }
   }
 
+  /**
+   * Lưu bước chạy vào bối cảnh (messages)
+   * Tối ưu hóa log hệ thống để tránh làm tràn Context gây lỗi Socket
+   */
   private addStep(decision: any, result: string) {
+    // Tối ưu hóa: Nếu result từ các task thực thi (như npm install) quá dài
+    // Chúng ta chỉ giữ lại phần đầu và phần cuối quan trọng nhất.
+    const MAX_LOG_LENGTH = 4000;
+    let optimizedResult = result;
+
+    if (result.length > MAX_LOG_LENGTH) {
+      optimizedResult = 
+        result.substring(0, 1500) + 
+        "\n\n... [HỆ THỐNG: Cắt bớt " + (result.length - 3000) + " ký tự log trung gian để tối ưu payload] ...\n\n" + 
+        result.substring(result.length - 1500);
+    }
+
     this.messages.push({ role: "assistant", content: JSON.stringify(decision) });
-    this.messages.push({ role: "user", content: `Kết quả hệ thống: ${result}` });
-    if (this.messages.length > 30) this.messages.splice(1, 2); 
+    this.messages.push({ role: "user", content: `Kết quả hệ thống: ${optimizedResult}` });
+    
+    // Giữ Context trong giới hạn an toàn (khoảng 15-20 lượt trao đổi gần nhất)
+    if (this.messages.length > 40) {
+      this.messages.splice(1, 2); 
+    }
   }
 }
