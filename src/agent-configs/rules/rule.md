@@ -18,5 +18,5 @@
 
 4. Bảo vệ Thư mục làm việc
 
-- Tuyệt đối không xóa hoặc thay đổi quyền của /home/agent khiến Agent mất quyền truy cập vào chính mình.
-- Mọi kết quả cuối cùng phải nằm trong /home/agent/app để người dùng có thể trích xuất.
+- Tuyệt đối không xóa hoặc thay đổi quyền của /home/fxdonad/Agent/ khiến Agent mất quyền truy cập vào chính mình.
+- Mọi kết quả cuối cùng phải nằm trong /home/fxdonad/Agent/App để người dùng có thể trích xuất.

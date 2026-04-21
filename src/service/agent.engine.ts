@@ -2,51 +2,55 @@ import axios from "axios";
 import * as fs from "node:fs";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { DockerService } from "../core/docker.service.js";
+import { ShellService } from "../core/shell.service.js";
 import { BrowserService } from "../core/browser.service.js";
 import { PromptManager } from "./prompt.manager.js";
-import { Nemotron3Nano4bConfig } from "../model/nemotron-3-nano-4b.response.js";
+import { Gemma34bConfig } from "../model/gemma-3-4b.response.js";
 
 export class AgentEngine {
   private messages: any[] = [];
-  private docker = new DockerService("my-agent-sandbox");
+  private shell = new ShellService();
   private browser = new BrowserService();
   private rl = readline.createInterface({ input, output });
-  private readonly LMS_URL = "http://localhost:1234/v1/chat/completions";
+  
+  private hostIp = "10.119.97.128";
+  private port = "1235";
+  private readonly LMS_URL = `http://${this.hostIp}:${this.port}/v1/chat/completions`;
+  
+  private readonly EXEC_LOG_PATH = "./agent_execute.log";
 
-  // --- CƠ CHẾ CHỐNG LẶP ---
-  private actionHistory: string[] = []; // Lưu hash của thought + tool + params
-  private readonly MAX_HISTORY = 5; // Theo dõi 5 hành động gần nhất
+  private actionHistory: string[] = [];
+  private readonly MAX_HISTORY = 5;
   private readonly MAX_RETRY_SAME_ACTION = 3;
-  private readonly DANGEROUS_KEYWORDS = [
-    "sudo",
-    "rm -rf /",
-    "chmod 777",
-    "chown",
-    "mkfs",
-    "dd if=",
-  ];
+  private readonly DANGEROUS_KEYWORDS = ["sudo", "rm -rf /", "chmod 777", "chown", "mkfs", "dd if="];
 
   constructor() {
     this.messages.push({
       role: "system",
       content: PromptManager.loadConfigs(),
     });
+    if (!fs.existsSync(this.EXEC_LOG_PATH)) {
+      fs.writeFileSync(this.EXEC_LOG_PATH, `--- Session Start: ${new Date().toISOString()} ---\n`);
+    }
+  }
+
+  private logActivity(type: string, data: any) {
+    const logEntry = `[${new Date().toLocaleTimeString()}] [${type}] ${typeof data === 'string' ? data : JSON.stringify(data)}\n`;
+    fs.appendFileSync(this.EXEC_LOG_PATH, logEntry);
   }
 
   private isDangerousCommand(cmd: string): boolean {
     const lowerCmd = cmd.toLowerCase();
-    return this.DANGEROUS_KEYWORDS.some((keyword) =>
-      lowerCmd.includes(keyword),
-    );
+    return this.DANGEROUS_KEYWORDS.some((keyword) => lowerCmd.includes(keyword));
   }
 
   async run() {
-    console.log("🤖 Hệ thống Code Agent (Autonomous Mode) đã sẵn sàng.");
+    console.log("🤖 Hệ thống Code Agent (Native VM Mode) đã sẵn sàng.");
     const goal = await this.rl.question("👉 Yêu cầu của bạn: ");
     if (!goal) return;
 
     this.messages.push({ role: "user", content: goal });
+    this.logActivity("GOAL", goal);
 
     for (let i = 0; i < 50; i++) {
       try {
@@ -54,26 +58,19 @@ export class AgentEngine {
         const decision = this.parseResponse(rawResponse);
         if (!decision) continue;
 
-        // 1. KIỂM TRA LẶP
-        const actionHash = JSON.stringify({
-          t: decision.tool,
-          p: decision.parameters,
-        });
+        const actionHash = JSON.stringify({ t: decision.tool, p: decision.parameters });
         if (this.detectLoop(actionHash)) {
-          const warning =
-            "⚠️ CẢNH BÁO HỆ THỐNG: Bạn đang lặp lại cùng một hành động mà không có kết quả mới. Vui lòng dừng lại, phân tích tại sao lệnh trước đó không đạt mục đích, và thử một cách tiếp cận khác hoặc: giải thích khó khăn gặp phải và đưa ra hướng cần trợ giúp từ human: sử dụng ask_human.";
-          console.log(warning);
+          const warning = "⚠️ HỆ THỐNG: Bạn đang lặp lại hành động. Hãy đổi cách tiếp cận hoặc dùng 'ask_human'.";
           this.messages.push({ role: "user", content: warning });
+          console.log(warning);
           continue;
         }
 
-        console.log(`\n🤔 SUY NGHĨ: ${decision.thought}`);
-        console.log(
-          `\nQuyết định: ${decision.tool} - ${decision.parameters.command}`,
-        );
+        console.log(`\n🤔 SUY NGHĨ [${i}]: ${decision.thought}`);
+        this.logActivity("THOUGHT", decision.thought);
 
         const result = await this.executeDecision(decision);
-
+        
         if (decision.tool === "done") {
           console.log("✅ NHIỆM VỤ HOÀN THÀNH!");
           break;
@@ -81,175 +78,129 @@ export class AgentEngine {
 
         this.addStep(decision, result);
       } catch (err: any) {
-        console.error(`⚠️ Lỗi: ${err.message}`);
-        this.addStep(
-          { tool: "error", parameters: {} },
-          `Lỗi hệ thống: ${err.message}`,
-        );
+        const errorMsg = `Lỗi hệ thống: ${err.message}`;
+        this.logActivity("ERROR", errorMsg);
+        this.addStep({ tool: "error", parameters: {} }, errorMsg);
       }
     }
   }
 
-  /**
-   * Thuật toán phát hiện lặp đơn giản
-   */
   private detectLoop(currentHash: string): boolean {
     this.actionHistory.push(currentHash);
-    if (this.actionHistory.length > this.MAX_HISTORY) {
-      this.actionHistory.shift();
-    }
-
-    // Đếm số lần hành động hiện tại xuất hiện trong lịch sử gần đây
-    const occurrences = this.actionHistory.filter(
-      (h) => h === currentHash,
-    ).length;
-    return occurrences >= this.MAX_RETRY_SAME_ACTION;
+    if (this.actionHistory.length > this.MAX_HISTORY) this.actionHistory.shift();
+    return this.actionHistory.filter(h => h === currentHash).length >= this.MAX_RETRY_SAME_ACTION;
   }
 
   private async executeDecision(decision: any): Promise<string> {
     const { tool, parameters } = decision;
+    let result = "";
 
-    try {
-      switch (tool) {
-        case "execute_command":
-          const cmd = parameters.command;
-          console.log(`💻 EXEC: ${cmd}`);
+    switch (tool) {
+      case "execute_command":
+        this.logActivity("EXEC", parameters.command);
+        if (this.isDangerousCommand(parameters.command)) {
+          const confirm = await this.rl.question(`⚠️ LỆNH NGUY HIỂM: "${parameters.command}". Chạy không? (y/n): `);
+          if (confirm.toLowerCase() !== 'y') return "Bị từ chối bởi người dùng.";
+        }
+        result = this.shell.execute(parameters.command);
+        break;
 
-          // CHẶN LỆNH NGUY HIỂM: Tự động chuyển sang ask_human nếu lệnh nhạy cảm
-          if (this.isDangerousCommand(cmd)) {
-            const warningMsg = `Lệnh này có thể gây nguy hiểm (${cmd}). Bạn có chắc chắn muốn thực thi không?`;
-            console.log(
-              `⚠️ PHÁT HIỆN LỆNH NHẠY CẢM: Chờ xác nhận từ người dùng...`,
-            );
+      case "file_operation":
+        this.logActivity("FILE", parameters);
+        result = await this.handleFileOp(parameters);
+        break;
 
-            // Tái cấu trúc lại decision để hỏi human
-            const humanAnswer = await this.rl.question(
-              `❓ AGENT CẦN XÁC NHẬN: Lệnh "${cmd}" được coi là nhạy cảm. Bạn cho phép chạy không? (y/n): `,
-            );
+      case "read_structure":
+        const findCmd = `find ${parameters.path || "."} -maxdepth 3 -not -path '*/.*' -not -path '*node_modules*' -not -path '*dist*'`;
+        result = this.shell.execute(findCmd);
+        break;
 
-            if (humanAnswer.toLowerCase() !== "y") {
-              return "Thực thi bị hủy bởi người dùng vì lý do an toàn.";
-            }
-          }
+      case "ask_human":
+        result = await this.rl.question(`❓ AGENT HỎI: ${parameters.query}\n👉 Trả lời: `);
+        this.actionHistory = [];
+        break;
 
-          return this.docker.execute(cmd);
+      case "web_search":
+        result = await this.browser.search(parameters.query);
+        break;
 
-        case "file_operation":
-          // Bổ sung kiểm tra cho action delete trong file_operation
-          if (parameters.action === "delete") {
-            const confirm = await this.rl.question(
-              `❓ XÁC NHẬN: Bạn có chắc muốn xóa "${parameters.path}"? (y/n): `,
-            );
-            if (confirm.toLowerCase() !== "y") return "Hủy lệnh xóa.";
-          }
-          return this.handleFileOp(parameters);
-
-        case "ask_human":
-          const answer = await this.rl.question(
-            `❓ AGENT HỎI: ${parameters.query}\n👉 Trả lời: `,
-          );
-          this.actionHistory = [];
-          return answer;
-
-        case "read_structure":
-          return this.docker.execute(
-            `find ${parameters.path || "."} -maxdepth 3 -not -path '*/.*' -not -path '*node_modules*'`,
-          );
-
-        case "debug_service":
-          return this.handleDebug(parameters);
-
-        case "web_search":
-          return await this.browser.search(parameters.query);
-
-        case "respond_to_user":
-          console.log(`\n🤖 PHẢN HỒI: ${parameters.content}`);
-          return "Người dùng đã nhận được thông tin.";
-
-        default:
-          return "Tool không hợp lệ.";
-      }
-    } catch (e: any) {
-      return `Thực thi thất bại: ${e.message}`;
+      default:
+        result = "Lỗi: Tool không được hỗ trợ.";
     }
+
+    this.logActivity("RESULT", result.substring(0, 500) + (result.length > 500 ? "..." : ""));
+    return result;
   }
 
-  private handleFileOp(p: any): string {
-    const { action, path, content } = p;
-    // Bọc các lệnh trong nháy kép để tránh lỗi path có dấu cách
-    if (action === "write") {
-      const base64 = Buffer.from(content || "").toString("base64");
-      return this.docker.execute(
-        `mkdir -p "$(dirname "${path}")" && echo "${base64}" | base64 --decode > "${path}" && echo "Ghi file thành công."`,
-      );
-    }
-    if (action === "read")
-      return this.docker.execute(
-        `[ -f "${path}" ] && cat "${path}" || echo "Lỗi: File không tồn tại."`,
-      );
-    if (action === "delete")
-      return this.docker.execute(`rm -rf "${path}" && echo "Đã xóa."`);
-    if (action === "mkdir")
-      return this.docker.execute(
-        `mkdir -p "${path}" && echo "Đã tạo thư mục."`,
-      );
-    return this.docker.execute(`ls -F "${path}"`);
-  }
+  private async handleFileOp(p: any): Promise<string> {
+    const { action, path: filePath, content } = p;
+    
+    switch (action) {
+      case "write":
+        // Dùng Base64 để truyền dữ liệu code an toàn qua Shell
+        const base64 = Buffer.from(content || "").toString("base64");
+        return this.shell.execute(`
+          mkdir -p "$(dirname "${filePath}")" && 
+          echo "${base64}" | base64 --decode > "${filePath}" && 
+          echo "Ghi file ${filePath} thành công."
+        `);
+      
+      case "read":
+        return this.shell.execute(`
+          if [ -f "${filePath}" ]; then
+            FILE_SIZE=$(stat -c%s "${filePath}")
+            if [ "$FILE_SIZE" -gt 51200 ]; then
+              echo "FILE QUÁ LỚN ($FILE_SIZE bytes). Chỉ hiển thị 100 dòng đầu:"
+              head -n 100 "${filePath}"
+            else
+              cat "${filePath}"
+            fi
+          else
+            echo "Lỗi: File không tồn tại."
+          fi
+        `);
+      
+      case "list":
+        return this.shell.execute(`ls -F "${filePath || "."}"`);
+        
+      case "mkdir":
+        return this.shell.execute(`mkdir -p "${filePath}" && echo "Đã tạo thư mục: ${filePath}"`);
+        
+      case "delete":
+        const confirm = await this.rl.question(`❓ Xóa "${filePath}"? (y/n): `);
+        return confirm.toLowerCase() === 'y' ? this.shell.execute(`rm -rf "${filePath}" && echo "Đã xóa."`) : "Hủy xóa.";
 
-  private handleDebug(p: any): string {
-    if (p.type === "logs")
-      return this.docker.execute(
-        `tail -n ${p.lines || 50} server.log 2>/dev/null || echo "Chưa có log."`,
-      );
-    if (p.type === "network")
-      return this.docker.execute(
-        `ss -tuln || netstat -tuln || echo "Lỗi: Không tìm thấy công cụ mạng, hãy tự cài đặt tool còn thiếu hoặc yêu cầu human hỗ trợ."`,
-      );
-    return this.docker.execute(
-      `ps aux | grep -E "node|npm|vite" | grep -v grep || echo "Không tìm thấy tiến trình."`,
-    );
+      default:
+        return "Hành động file không hợp lệ.";
+    }
   }
 
   private async askLLM() {
     const res = await axios.post(
       this.LMS_URL,
       {
-        model: Nemotron3Nano4bConfig.modelName,
+        model: Gemma34bConfig.modelName,
         messages: this.messages,
-        temperature: 0.1, // Thấp để đảm bảo tính nhất quán
-        response_format: Nemotron3Nano4bConfig.structureResponse,
+        temperature: 0.1,
+        response_format: Gemma34bConfig.structureResponse,
       },
-      { timeout: 60000 },
+      { timeout: 240000 }
     );
-
-    const msg = res.data.choices[0].message;
-    return msg.content || msg.reasoning_content || "";
+    return res.data.choices[0].message.content || res.data.choices[0].message.reasoning_content || "";
   }
 
   private parseResponse(content: string) {
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
-      return JSON.parse(jsonMatch[0]);
+      return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
     } catch (e) {
-      console.log("⚠️ Lỗi phân giải JSON, đang yêu cầu AI format lại...");
       return null;
     }
   }
 
   private addStep(decision: any, result: string) {
-    this.messages.push({
-      role: "assistant",
-      content: JSON.stringify(decision),
-    });
-    this.messages.push({
-      role: "user",
-      content: `Kết quả từ hệ thống: ${result}`,
-    });
-
-    // Giới hạn context để tránh quá tải token (Tùy chọn)
-    if (this.messages.length > 40) {
-      this.messages.splice(1, 2); // Xóa các cặp hội thoại cũ nhất (trừ System Prompt)
-    }
+    this.messages.push({ role: "assistant", content: JSON.stringify(decision) });
+    this.messages.push({ role: "user", content: `Kết quả hệ thống: ${result}` });
+    if (this.messages.length > 30) this.messages.splice(1, 2); 
   }
 }

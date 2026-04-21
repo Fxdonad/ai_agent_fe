@@ -2,7 +2,7 @@
 
 Sử dụng công cụ này khi bạn đã chạy một lệnh background (như npm run dev, ...) nhưng không biết nó có chạy thành công hay không.
 
-- `type: logs`: Đọc 50 dòng cuối của file `server.log`. nếu kiểm tra chưa tồn tại tại /home/agent/app/ thì hãy tạo mới nó tại /home/agent/app/server.log
+- `type: logs`: Đọc 50 dòng cuối của file `server.log`. nếu kiểm tra chưa tồn tại tại /home/fxdonad/Agent/App/ thì hãy tạo mới nó tại /home/fxdonad/Agent/App/server.log
 - `type: process`: Kiểm tra xem tiến trình có bị "die" giữa chừng không.
 - `type: network`: Kiểm tra xem port được yêu cầu có vấn đề gì không, báo cho human về thông tin nếu có
 
