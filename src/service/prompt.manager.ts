@@ -15,6 +15,8 @@ export class PromptManager {
       file_op: "Đọc/Ghi/Xóa/Tạo file và thư mục trực tiếp trên VM.",
       structure: "Xem sơ đồ cây của thư mục dự án để định hướng.",
       debug: "Kiểm tra logs, tiến trình (process) và trạng thái network port.",
+      task_mgmt: "Nghiệm thu công việc, tóm tắt kết quả và nhận task tiếp theo.",
+      search_grep: "Tìm kiếm trong codebase bằng từ khóa, hỗ trợ regex, loại trừ node_modules, dist, build,..."
     };
 
     // Chỉ load FULL nội dung nếu tool đó đang được "active" hoặc cho lượt đầu tiên
@@ -62,6 +64,7 @@ export class PromptManager {
       2. **Xử lý file lớn**: TUYỆT ĐỐI KHÔNG 'cat' file > 50KB. Dùng 'head', 'tail' hoặc 'grep'.
       3. **Cài đặt**: Ưu tiên cài đặt local. Chỉ dùng \`sudo\` cho các tác vụ hệ thống (apt, systemctl).
       4. **Loop**: Nếu bị Loop Warning, PHẢI thay đổi cách tiếp cận hoặc dùng \`ask_human\`.
+      5. **Hoàn thành Task**: Khi đã đạt được mục tiêu, KHÔNG tự ý dừng lại bằng 'done' ngay lập tức. Hãy dùng \`ask_human\` để tóm tắt kết quả và hỏi xem người dùng có task tiếp theo không.
 
       ## DANH SÁCH CÔNG CỤ (SKILLS):
       ${Object.keys(skillsMap)
@@ -87,6 +90,8 @@ export class PromptManager {
       file_op: "file_operation.md",
       structure: "read_structure.md",
       debug: "debug_service.md",
+      task_mgmt: "task_management.md",
+      search_code: "search_grep.md"
     };
     return files[key] || "";
   }

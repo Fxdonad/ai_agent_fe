@@ -115,6 +115,16 @@ export class AgentEngine {
         result = this.shell.execute(findCmd);
         break;
 
+      case "search_grep":
+        this.logActivity("SEARCH", parameters);
+        // Tối ưu lệnh grep để không quét qua node_modules và các file binary
+        const query = parameters.query;
+        const path = parameters.path || ".";
+        const grepCmd = `grep -rnI "${query}" ${path} --exclude-dir={.git,node_modules,dist,build} | head -n 50`;
+        result = this.shell.execute(grepCmd);
+        if (!result.trim()) result = `Không tìm thấy kết quả cho từ khóa: "${query}"`;
+        break;
+
       case "ask_human":
         result = await this.rl.question(`❓ AGENT HỎI: ${parameters.query}\n👉 Trả lời: `);
         this.actionHistory = [];
