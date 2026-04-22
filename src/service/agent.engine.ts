@@ -6,6 +6,7 @@ import { ShellService } from "../core/shell.service.js";
 import { BrowserService } from "../core/browser.service.js";
 import { PromptManager } from "./prompt.manager.js";
 import { Gemma34bConfig } from "../model/gemma-3-4b.response.js";
+import { execSync } from "node:child_process";
 import env from "../environment.js";
 
 export class AgentEngine {
@@ -33,6 +34,25 @@ export class AgentEngine {
   ];
 
   constructor() {
+    // 1. KIỂM TRA ĐỊNH DANH NGHIÊM NGẶT
+    let realUser = "unknown";
+    try {
+      realUser = execSync('whoami').toString().trim();
+    } catch (e) {
+      realUser = "error";
+    }
+
+    console.log("\n" + "=".repeat(50));
+    console.log(`👤 ĐANG CHẠY DƯỚI USER: [ ${realUser} ]`);
+    
+    // Nếu bạn muốn ép buộc chỉ chạy dưới quyền agent, hãy bỏ comment 3 dòng dưới:
+    // if (realUser !== "agent") {
+    //   console.error("❌ LỖI BẢO MẬT: Agent phải được chạy bởi user 'agent' thông qua Systemd.");
+    //   process.exit(1); 
+    // }
+    
+    console.log(`📂 WORKING DIR: ${process.cwd()}`);
+    console.log("=".repeat(50) + "\n");
     this.messages.push({
       role: "system",
       content: PromptManager.loadConfigs(),
