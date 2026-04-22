@@ -1,62 +1,103 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import env from "../environment.js";
 
 export class PromptManager {
   /**
    * Load cấu hình hệ thống và kỹ năng cho Agent.
-   * Đã tối ưu hóa cho môi trường Native VM Ubuntu.
+   * Đã tối ưu hóa cho môi trường Native VM Ubuntu và hỗ trợ Template Injection.
    */
   static loadConfigs(activeTools: string[] = []) {
     // Danh sách các skill khả dụng
     const skillsMap: Record<string, string> = {
       terminal: "Thực thi lệnh shell, cài đặt package (apt, npm).",
       browser: "Tìm kiếm thông tin trên internet qua Wikipedia/Search.",
-      human: "Hỏi ý kiến người dùng khi gặp bế tắc hoặc cần xác nhận quan trọng.",
+      human:
+        "Hỏi ý kiến người dùng khi gặp bế tắc hoặc cần xác nhận quan trọng.",
       file_op: "Đọc/Ghi/Xóa/Tạo file và thư mục trực tiếp trên VM.",
       structure: "Xem sơ đồ cây của thư mục dự án để định hướng.",
       debug: "Kiểm tra logs, tiến trình (process) và trạng thái network port.",
-      task_mgmt: "Nghiệm thu công việc, tóm tắt kết quả và nhận task tiếp theo.",
-      search_grep: "Tìm kiếm trong codebase bằng từ khóa, hỗ trợ regex, loại trừ node_modules, dist, build,..."
+      task_mgmt:
+        "Nghiệm thu công việc, tóm tắt kết quả và nhận task tiếp theo.",
+      search_grep:
+        "Tìm kiếm trong codebase bằng từ khóa, hỗ trợ regex, loại trừ node_modules, dist, build,...",
     };
 
     // Chỉ load FULL nội dung nếu tool đó đang được "active" hoặc cho lượt đầu tiên
     const getSkillContent = (key: string, fileName: string) => {
       if (activeTools.length === 0 || activeTools.includes(key)) {
         try {
-          // Lưu ý: Đảm bảo thư mục src/agent-configs tồn tại trên VM
-          return fs.readFileSync(
+          const rawContent = fs.readFileSync(
             `./src/agent-configs/skills/${fileName}`,
             "utf-8",
           );
+          // Thực hiện inject biến vào nội dung từng skill
+          return this.injectVariables(rawContent);
         } catch (e) {
-          return skillsMap[key]; // Fallback về mô tả ngắn nếu không tìm thấy file
+          return skillsMap[key];
         }
       }
       return `Mô tả: ${skillsMap[key]} (Dùng tool này để xem hướng dẫn chi tiết)`;
     };
 
-    const rules = "";
-    const mainRules = "";
-    
     try {
-      // Load quy chuẩn lập trình và quy tắc tự điều chỉnh
-      const codingStandard = fs.readFileSync(`./src/agent-configs/rules/coding_standard.md`, "utf-8");
-      const selfCorrection = fs.readFileSync(`./src/agent-configs/rules/rule.md`, "utf-8");
-      return this.buildFinalPrompt(skillsMap, getSkillContent.bind(this), codingStandard, selfCorrection);
+      // Load và xử lý template cho quy chuẩn lập trình và quy tắc tự điều chỉnh
+      const codingStandardRaw = fs.readFileSync(
+        `./src/agent-configs/rules/coding_standard.md`,
+        "utf-8",
+      );
+      const selfCorrectionRaw = fs.readFileSync(
+        `./src/agent-configs/rules/rule.md`,
+        "utf-8",
+      );
+
+      const codingStandard = this.injectVariables(codingStandardRaw);
+      const selfCorrection = this.injectVariables(selfCorrectionRaw);
+
+      return this.buildFinalPrompt(
+        skillsMap,
+        getSkillContent.bind(this),
+        codingStandard,
+        selfCorrection,
+      );
     } catch (e) {
+      console.error("❌ Lỗi load cấu hình Prompt:", e);
       return "Lỗi: Không thể load quy tắc hệ thống. Hãy kiểm tra thư mục src/agent-configs/rules/.";
     }
   }
 
-  private static buildFinalPrompt(skillsMap: any, getSkillContent: Function, rules: string, mainRules: string) {
+  private static injectVariables(content: string): string {
+    const agentWorkDir = env.get("agent_work_dir");
+    const mainWorkSpaceDir = env.get("main_work_space_dir");
+    const userName = env.get("user_name");
+    const hostIp = env.get("host_ip");
+    const hostPort = env.get("host_port").toString();
+
+    return content
+      .replace(/\{\{AGENT_WORK_DIR\}\}/g, agentWorkDir)
+      .replace(/\{\{WORK_SPACE_DIR\}\}/g, mainWorkSpaceDir)
+      .replace(/\{\{USER_NAME\}\}/g, userName)
+      .replace(/\{\{HOST_IP\}\}/g, hostIp)
+      .replace(/\{\{HOST_PORT\}\}/g, hostPort);
+  }
+
+  private static buildFinalPrompt(
+    skillsMap: any,
+    getSkillContent: Function,
+    rules: string,
+    mainRules: string,
+  ) {
+    const agentDir = env.get("agent_work_dir");
+    const user = env.get("user_name");
+
     return `
       ## VAI TRÒ
       Bạn là một Senior Full-stack Engineer Agent (Self-healing) vận hành trực tiếp trên môi trường **Native VM Ubuntu**.
 
       ## MÔI TRƯỜNG HOẠT ĐỘNG
       - **Hệ điều hành**: Ubuntu (Native)
-      - **User**: fxdonad
-      - **Thư mục làm việc chính**: \`/home/fxdonad/Fxdonad/Agent/App\`
+      - **User**: ${user}
+      - **Thư mục làm việc chính**: \`/${agentDir}\`
       - **Đặc điểm**: Dữ liệu có tính bền vững (Persistence), không bị reset như Docker.
 
       ## CHIẾN THUẬT & QUY TRÌNH (BẮT BUỘC)
@@ -68,7 +109,10 @@ export class PromptManager {
 
       ## DANH SÁCH CÔNG CỤ (SKILLS):
       ${Object.keys(skillsMap)
-        .map((key) => `- ${key.toUpperCase()}: ${getSkillContent(key, this.getFileName(key))}`)
+        .map(
+          (key) =>
+            `- ${key.toUpperCase()}: ${getSkillContent(key, this.getFileName(key))}`,
+        )
         .join("\n\n")}
 
       ## QUY TẮC LẬP TRÌNH & VẬN HÀNH:
@@ -76,7 +120,7 @@ export class PromptManager {
       ${mainRules}
 
       ## QUYỀN HẠN & BẢO MẬT:
-      - Bạn có quyền thực thi lệnh shell với user \`fxdonad\`.
+      - Bạn có quyền thực thi lệnh shell với user \`${user}\`.
       - Các lệnh nhạy cảm (\`rm -rf\`, \`sudo\`) sẽ được hệ thống chặn lại để hỏi xác nhận từ người dùng tự động.
       - Phải trả về JSON đúng schema quy định.
     `;
@@ -91,7 +135,7 @@ export class PromptManager {
       structure: "read_structure.md",
       debug: "debug_service.md",
       task_mgmt: "task_management.md",
-      search_code: "search_grep.md"
+      search_grep: "search_grep.md",
     };
     return files[key] || "";
   }

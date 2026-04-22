@@ -6,23 +6,31 @@ import { ShellService } from "../core/shell.service.js";
 import { BrowserService } from "../core/browser.service.js";
 import { PromptManager } from "./prompt.manager.js";
 import { Gemma34bConfig } from "../model/gemma-3-4b.response.js";
+import env from "../environment.js";
 
 export class AgentEngine {
   private messages: any[] = [];
   private shell = new ShellService();
   private browser = new BrowserService();
   private rl = readline.createInterface({ input, output });
-  
-  private hostIp = "10.119.97.128";
-  private port = "1235";
+
+  private hostIp = env.get("host_ip");
+  private port = env.get("host_port");
   private readonly LMS_URL = `http://${this.hostIp}:${this.port}/v1/chat/completions`;
-  
+
   private readonly EXEC_LOG_PATH = "./agent_execute.log";
 
   private actionHistory: string[] = [];
   private readonly MAX_HISTORY = 5;
   private readonly MAX_RETRY_SAME_ACTION = 3;
-  private readonly DANGEROUS_KEYWORDS = ["sudo", "rm -rf /", "chmod 777", "chown", "mkfs", "dd if="];
+  private readonly DANGEROUS_KEYWORDS = [
+    "sudo",
+    "rm -rf /",
+    "chmod 777",
+    "chown",
+    "mkfs",
+    "dd if=",
+  ];
 
   constructor() {
     this.messages.push({
@@ -30,18 +38,23 @@ export class AgentEngine {
       content: PromptManager.loadConfigs(),
     });
     if (!fs.existsSync(this.EXEC_LOG_PATH)) {
-      fs.writeFileSync(this.EXEC_LOG_PATH, `--- Session Start: ${new Date().toISOString()} ---\n`);
+      fs.writeFileSync(
+        this.EXEC_LOG_PATH,
+        `--- Session Start: ${new Date().toISOString()} ---\n`,
+      );
     }
   }
 
   private logActivity(type: string, data: any) {
-    const logEntry = `[${new Date().toLocaleTimeString()}] [${type}] ${typeof data === 'string' ? data : JSON.stringify(data)}\n`;
+    const logEntry = `[${new Date().toLocaleTimeString()}] [${type}] ${typeof data === "string" ? data : JSON.stringify(data)}\n`;
     fs.appendFileSync(this.EXEC_LOG_PATH, logEntry);
   }
 
   private isDangerousCommand(cmd: string): boolean {
     const lowerCmd = cmd.toLowerCase();
-    return this.DANGEROUS_KEYWORDS.some((keyword) => lowerCmd.includes(keyword));
+    return this.DANGEROUS_KEYWORDS.some((keyword) =>
+      lowerCmd.includes(keyword),
+    );
   }
 
   async run() {
@@ -56,17 +69,26 @@ export class AgentEngine {
       try {
         process.stdout.write(`\r🤖 [Lượt ${i}] Đang gửi yêu cầu tới LLM... `);
         const rawResponse = await this.askLLM();
-        
+
         const decision = this.parseResponse(rawResponse);
         if (!decision) {
-          console.log("\n⚠️ Cảnh báo: LLM trả về format không hợp lệ. Đang yêu cầu AI định dạng lại...");
-          this.messages.push({ role: "user", content: "Lỗi: Bạn phải trả về JSON đúng schema. Hãy thử lại." });
+          console.log(
+            "\n⚠️ Cảnh báo: LLM trả về format không hợp lệ. Đang yêu cầu AI định dạng lại...",
+          );
+          this.messages.push({
+            role: "user",
+            content: "Lỗi: Bạn phải trả về JSON đúng schema. Hãy thử lại.",
+          });
           continue;
         }
 
-        const actionHash = JSON.stringify({ t: decision.tool, p: decision.parameters });
+        const actionHash = JSON.stringify({
+          t: decision.tool,
+          p: decision.parameters,
+        });
         if (this.detectLoop(actionHash)) {
-          const warning = "\n⚠️ HỆ THỐNG: Bạn đang lặp lại hành động. Hãy đổi cách tiếp cận hoặc dùng 'ask_human'.";
+          const warning =
+            "\n⚠️ HỆ THỐNG: Bạn đang lặp lại hành động. Hãy đổi cách tiếp cận hoặc dùng 'ask_human'.";
           this.messages.push({ role: "user", content: warning });
           console.log(warning);
           continue;
@@ -79,7 +101,7 @@ export class AgentEngine {
         process.stdout.write(`⚙️ Đang thực thi tool [${decision.tool}]... `);
         const result = await this.executeDecision(decision);
         process.stdout.write(`✅ Xong.\n`);
-        
+
         if (decision.tool === "done") {
           console.log("✅ NHIỆM VỤ HOÀN THÀNH!");
           break;
@@ -91,17 +113,21 @@ export class AgentEngine {
         const errorMsg = `Lỗi hệ thống: ${err.message}`;
         this.logActivity("FATAL_ERROR", errorMsg);
         this.addStep({ tool: "error", parameters: {} }, errorMsg);
-        
+
         // Nghỉ một chút trước khi retry để tránh spam nếu lỗi mạng
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 2000));
       }
     }
   }
 
   private detectLoop(currentHash: string): boolean {
     this.actionHistory.push(currentHash);
-    if (this.actionHistory.length > this.MAX_HISTORY) this.actionHistory.shift();
-    return this.actionHistory.filter(h => h === currentHash).length >= this.MAX_RETRY_SAME_ACTION;
+    if (this.actionHistory.length > this.MAX_HISTORY)
+      this.actionHistory.shift();
+    return (
+      this.actionHistory.filter((h) => h === currentHash).length >=
+      this.MAX_RETRY_SAME_ACTION
+    );
   }
 
   private async askLLM(retryCount = 0): Promise<string> {
@@ -121,31 +147,40 @@ export class AgentEngine {
           temperature: 0.1,
           response_format: Gemma34bConfig.structureResponse,
         },
-        { 
-          timeout: 240000, 
+        {
+          timeout: 240000,
           signal: controller.signal,
-          headers: { 'Connection': 'keep-alive' }
-        }
+          headers: { Connection: "keep-alive" },
+        },
       );
 
       clearTimeout(timeoutId);
-      const content = res.data.choices[0].message.content || res.data.choices[0].message.reasoning_content || "";
+      const content =
+        res.data.choices[0].message.content ||
+        res.data.choices[0].message.reasoning_content ||
+        "";
       if (!content) throw new Error("LLM trả về nội dung trống");
-      
+
       return content;
     } catch (err: any) {
       clearTimeout(timeoutId);
-      const isNetworkError = err.code === 'ECONNRESET' || 
-                             err.message.includes('socket hang up') || 
-                             err.name === 'AbortError' ||
-                             err.code === 'ETIMEDOUT';
+      const isNetworkError =
+        err.code === "ECONNRESET" ||
+        err.message.includes("socket hang up") ||
+        err.name === "AbortError" ||
+        err.code === "ETIMEDOUT";
 
       if (isNetworkError && retryCount < maxRetries) {
         const delay = retryDelays[retryCount];
-        console.log(`\n📡 Lỗi kết nối (${err.message}). Thử lại ${retryCount + 1}/${maxRetries} sau ${delay}ms...`);
-        this.logActivity("RETRY", { attempt: retryCount + 1, error: err.message });
-        
-        await new Promise(resolve => setTimeout(resolve, delay));
+        console.log(
+          `\n📡 Lỗi kết nối (${err.message}). Thử lại ${retryCount + 1}/${maxRetries} sau ${delay}ms...`,
+        );
+        this.logActivity("RETRY", {
+          attempt: retryCount + 1,
+          error: err.message,
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
         return this.askLLM(retryCount + 1);
       }
 
@@ -163,8 +198,11 @@ export class AgentEngine {
       switch (tool) {
         case "execute_command":
           if (this.isDangerousCommand(parameters.command)) {
-            const confirm = await this.rl.question(`\n⚠️ LỆNH NGUY HIỂM: "${parameters.command}". Chạy không? (y/n): `);
-            if (confirm.toLowerCase() !== 'y') return "Bị từ chối bởi người dùng.";
+            const confirm = await this.rl.question(
+              `\n⚠️ LỆNH NGUY HIỂM: "${parameters.command}". Chạy không? (y/n): `,
+            );
+            if (confirm.toLowerCase() !== "y")
+              return "Bị từ chối bởi người dùng.";
           }
           result = await this.shell.execute(parameters.command);
           break;
@@ -185,12 +223,15 @@ export class AgentEngine {
           const path = parameters.path || ".";
           const grepCmd = `grep -rnI "${query}" ${path} --exclude-dir={.git,node_modules,dist,build} | head -n 50`;
           result = await this.shell.execute(grepCmd);
-          if (!result.trim()) result = `Không tìm thấy kết quả cho từ khóa: "${query}"`;
+          if (!result.trim())
+            result = `Không tìm thấy kết quả cho từ khóa: "${query}"`;
           break;
 
         case "ask_human":
           console.log("\n--- CHỜ PHẢN HỒI ---");
-          result = await this.rl.question(`❓ AGENT HỎI: ${parameters.query}\n👉 Trả lời: `);
+          result = await this.rl.question(
+            `❓ AGENT HỎI: ${parameters.query}\n👉 Trả lời: `,
+          );
           this.actionHistory = []; // Reset history sau khi có input từ người
           break;
 
@@ -200,9 +241,14 @@ export class AgentEngine {
 
         case "debug_service":
           const { type, lines = 20 } = parameters;
-          if (type === "logs") result = await this.shell.execute(`tail -n ${lines} ${this.EXEC_LOG_PATH}`);
-          else if (type === "process") result = await this.shell.execute(`ps aux | head -n ${lines}`);
-          else if (type === "network") result = await this.shell.execute(`netstat -tunlp`);
+          if (type === "logs")
+            result = await this.shell.execute(
+              `tail -n ${lines} ${this.EXEC_LOG_PATH}`,
+            );
+          else if (type === "process")
+            result = await this.shell.execute(`ps aux | head -n ${lines}`);
+          else if (type === "network")
+            result = await this.shell.execute(`netstat -tunlp`);
           break;
 
         default:
@@ -212,31 +258,44 @@ export class AgentEngine {
       result = `Lỗi thực thi tool: ${e.message}`;
     }
 
-    this.logActivity("RESULT", result.substring(0, 1000) + (result.length > 1000 ? "..." : ""));
+    this.logActivity(
+      "RESULT",
+      result.substring(0, 1000) + (result.length > 1000 ? "..." : ""),
+    );
     const pwd = await this.shell.execute("pwd");
     return `[Vị trí: ${pwd.trim()}]\n${result}`;
   }
 
   private async handleFileOp(p: any): Promise<string> {
     const { action, path: filePath, content } = p;
-    
+
     switch (action) {
       case "write":
         const base64 = Buffer.from(content || "").toString("base64");
-        return this.shell.execute(`mkdir -p "$(dirname "${filePath}")" && echo "${base64}" | base64 --decode > "${filePath}" && echo "Ghi file thành công."`);
-      
+        return this.shell.execute(
+          `mkdir -p "$(dirname "${filePath}")" && echo "${base64}" | base64 --decode > "${filePath}" && echo "Ghi file thành công."`,
+        );
+
       case "read":
-        return this.shell.execute(`if [ -f "${filePath}" ]; then FILE_SIZE=$(stat -c%s "${filePath}"); if [ "$FILE_SIZE" -gt 51200 ]; then echo "FILE QUÁ LỚN. 100 dòng đầu:"; head -n 100 "${filePath}"; else cat "${filePath}"; fi; else echo "Lỗi: File không tồn tại."; fi`);
-      
+        return this.shell.execute(
+          `if [ -f "${filePath}" ]; then FILE_SIZE=$(stat -c%s "${filePath}"); if [ "$FILE_SIZE" -gt 51200 ]; then echo "FILE QUÁ LỚN. 100 dòng đầu:"; head -n 100 "${filePath}"; else cat "${filePath}"; fi; else echo "Lỗi: File không tồn tại."; fi`,
+        );
+
       case "list":
         return this.shell.execute(`ls -F "${filePath || "."}"`);
-        
+
       case "mkdir":
-        return this.shell.execute(`mkdir -p "${filePath}" && echo "Đã tạo thư mục: ${filePath}"`);
-        
+        return this.shell.execute(
+          `mkdir -p "${filePath}" && echo "Đã tạo thư mục: ${filePath}"`,
+        );
+
       case "delete":
-        const confirm = await this.rl.question(`\n❓ Xóa "${filePath}"? (y/n): `);
-        return confirm.toLowerCase() === 'y' ? this.shell.execute(`rm -rf "${filePath}"`) : "Hủy xóa.";
+        const confirm = await this.rl.question(
+          `\n❓ Xóa "${filePath}"? (y/n): `,
+        );
+        return confirm.toLowerCase() === "y"
+          ? this.shell.execute(`rm -rf "${filePath}"`)
+          : "Hủy xóa.";
 
       default:
         return "Hành động file không hợp lệ.";
@@ -258,18 +317,24 @@ export class AgentEngine {
     let optimizedResult = result;
 
     if (result.length > MAX_LOG_LENGTH) {
-      optimizedResult = 
-        result.substring(0, 1500) + 
-        "\n\n... [HỆ THỐNG: Cắt bớt log trung gian] ...\n\n" + 
+      optimizedResult =
+        result.substring(0, 1500) +
+        "\n\n... [HỆ THỐNG: Cắt bớt log trung gian] ...\n\n" +
         result.substring(result.length - 1500);
     }
 
-    this.messages.push({ role: "assistant", content: JSON.stringify(decision) });
-    this.messages.push({ role: "user", content: `Kết quả hệ thống: ${optimizedResult}` });
-    
+    this.messages.push({
+      role: "assistant",
+      content: JSON.stringify(decision),
+    });
+    this.messages.push({
+      role: "user",
+      content: `Kết quả hệ thống: ${optimizedResult}`,
+    });
+
     // Giữ Context trong giới hạn an toàn để tránh lag payload
     if (this.messages.length > 40) {
-      this.messages.splice(1, 2); 
+      this.messages.splice(1, 2);
     }
   }
 }

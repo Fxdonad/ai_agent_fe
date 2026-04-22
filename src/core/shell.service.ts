@@ -1,8 +1,9 @@
 import { execSync } from "node:child_process";
+import env from "../environment.js";
 
 export class ShellService {
   // Đồng bộ với cấu hình VM của bạn
-  public readonly workingDir = "/home/fxdonad/Fxdonad/Agent/App";
+  public readonly workingDir = env.get("agent_work_dir");
 
   async execute(command: string): Promise<string> {
     // Đảm bảo thư mục hoạt động tồn tại
@@ -13,9 +14,9 @@ export class ShellService {
       } 2>&1
       echo "---EXIT_CODE:$?---"
     `;
-    
+
     const base64Cmd = Buffer.from(wrappedCommand).toString("base64");
-    
+
     try {
       const output = await execSync(
         `echo "${base64Cmd}" | base64 --decode | bash`,
@@ -23,8 +24,8 @@ export class ShellService {
           stdio: ["pipe", "pipe", "pipe"],
           maxBuffer: 1024 * 1024 * 10,
           timeout: 300000,
-          shell: "/bin/bash"
-        }
+          shell: "/bin/bash",
+        },
       ).toString();
 
       // Phân tích exit code
