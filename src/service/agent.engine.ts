@@ -54,13 +54,19 @@ export class AgentEngine {
 
     for (let i = 0; i < 50; i++) {
       try {
+        process.stdout.write(`\r🤖 [Lượt ${i}] Đang gửi yêu cầu tới LLM... `);
         const rawResponse = await this.askLLM();
+        
         const decision = this.parseResponse(rawResponse);
-        if (!decision) continue;
+        if (!decision) {
+          console.log("\n⚠️ Cảnh báo: LLM trả về format không hợp lệ. Đang yêu cầu AI định dạng lại...");
+          this.messages.push({ role: "user", content: "Lỗi: Bạn phải trả về JSON đúng schema. Hãy thử lại." });
+          continue;
+        }
 
         const actionHash = JSON.stringify({ t: decision.tool, p: decision.parameters });
         if (this.detectLoop(actionHash)) {
-          const warning = "⚠️ HỆ THỐNG: Bạn đang lặp lại hành động. Hãy đổi cách tiếp cận hoặc dùng 'ask_human'.";
+          const warning = "\n⚠️ HỆ THỐNG: Bạn đang lặp lại hành động. Hãy đổi cách tiếp cận hoặc dùng 'ask_human'.";
           this.messages.push({ role: "user", content: warning });
           console.log(warning);
           continue;
@@ -69,7 +75,10 @@ export class AgentEngine {
         console.log(`\n🤔 SUY NGHĨ [${i}]: ${decision.thought}`);
         this.logActivity("THOUGHT", decision.thought);
 
+        // Đánh dấu bắt đầu thực thi để tránh cảm giác đóng băng
+        process.stdout.write(`⚙️ Đang thực thi tool [${decision.tool}]... `);
         const result = await this.executeDecision(decision);
+        process.stdout.write(`✅ Xong.\n`);
         
         if (decision.tool === "done") {
           console.log("✅ NHIỆM VỤ HOÀN THÀNH!");
@@ -78,10 +87,13 @@ export class AgentEngine {
 
         this.addStep(decision, result);
       } catch (err: any) {
-        const errorMsg = `Lỗi hệ thống cuối cùng: ${err.message}`;
+        console.log(`\n💥 Lỗi: ${err.message}`);
+        const errorMsg = `Lỗi hệ thống: ${err.message}`;
         this.logActivity("FATAL_ERROR", errorMsg);
-        // Thêm thông báo cho AI biết lỗi để nó tự healing nếu có thể ở lượt sau
         this.addStep({ tool: "error", parameters: {} }, errorMsg);
+        
+        // Nghỉ một chút trước khi retry để tránh spam nếu lỗi mạng
+        await new Promise(r => setTimeout(r, 2000));
       }
     }
   }
@@ -92,13 +104,13 @@ export class AgentEngine {
     return this.actionHistory.filter(h => h === currentHash).length >= this.MAX_RETRY_SAME_ACTION;
   }
 
-  /**
-   * Gọi LLM với cơ chế Exponential Backoff
-   * Giúp xử lý các lỗi tạm thời như Socket Hang Up hoặc Timeout khi VM đang tải nặng
-   */
   private async askLLM(retryCount = 0): Promise<string> {
     const maxRetries = 5;
-    const retryDelays = [1000, 2000, 4000, 8000, 16000]; // ms
+    const retryDelays = [2000, 4000, 8000, 16000, 32000];
+
+    // Sử dụng AbortController để chủ động ngắt socket nếu treo quá lâu
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 240000); // 3 phút
 
     try {
       const res = await axios.post(
@@ -110,25 +122,27 @@ export class AgentEngine {
           response_format: Gemma34bConfig.structureResponse,
         },
         { 
-          timeout: 240000, // 4 phút cho các task suy luận phức tạp
+          timeout: 240000, 
+          signal: controller.signal,
           headers: { 'Connection': 'keep-alive' }
         }
       );
 
+      clearTimeout(timeoutId);
       const content = res.data.choices[0].message.content || res.data.choices[0].message.reasoning_content || "";
       if (!content) throw new Error("LLM trả về nội dung trống");
       
       return content;
     } catch (err: any) {
+      clearTimeout(timeoutId);
       const isNetworkError = err.code === 'ECONNRESET' || 
                              err.message.includes('socket hang up') || 
-                             err.code === 'ETIMEDOUT' ||
-                             err.response?.status === 502 ||
-                             err.response?.status === 503;
+                             err.name === 'AbortError' ||
+                             err.code === 'ETIMEDOUT';
 
       if (isNetworkError && retryCount < maxRetries) {
         const delay = retryDelays[retryCount];
-        console.log(`⚠️ Lỗi kết nối (${err.message}). Thử lại lần ${retryCount + 1}/${maxRetries} sau ${delay}ms...`);
+        console.log(`\n📡 Lỗi kết nối (${err.message}). Thử lại ${retryCount + 1}/${maxRetries} sau ${delay}ms...`);
         this.logActivity("RETRY", { attempt: retryCount + 1, error: err.message });
         
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -143,51 +157,64 @@ export class AgentEngine {
     const { tool, parameters } = decision;
     let result = "";
 
-    switch (tool) {
-      case "execute_command":
-        this.logActivity("EXEC", parameters.command);
-        if (this.isDangerousCommand(parameters.command)) {
-          const confirm = await this.rl.question(`⚠️ LỆNH NGUY HIỂM: "${parameters.command}". Chạy không? (y/n): `);
-          if (confirm.toLowerCase() !== 'y') return "Bị từ chối bởi người dùng.";
-        }
-        result = this.shell.execute(parameters.command);
-        break;
+    this.logActivity("TOOL_USE", tool);
 
-      case "file_operation":
-        this.logActivity("FILE", parameters);
-        result = await this.handleFileOp(parameters);
-        break;
+    try {
+      switch (tool) {
+        case "execute_command":
+          if (this.isDangerousCommand(parameters.command)) {
+            const confirm = await this.rl.question(`\n⚠️ LỆNH NGUY HIỂM: "${parameters.command}". Chạy không? (y/n): `);
+            if (confirm.toLowerCase() !== 'y') return "Bị từ chối bởi người dùng.";
+          }
+          result = await this.shell.execute(parameters.command);
+          break;
 
-      case "read_structure":
-        const findCmd = `find ${parameters.path || "."} -maxdepth 3 -not -path '*/.*' -not -path '*node_modules*' -not -path '*dist*'`;
-        result = this.shell.execute(findCmd);
-        break;
+        case "file_operation":
+          result = await this.handleFileOp(parameters);
+          break;
 
-      case "search_grep":
-        this.logActivity("SEARCH", parameters);
-        const query = parameters.query;
-        const path = parameters.path || ".";
-        const grepCmd = `grep -rnI "${query}" ${path} --exclude-dir={.git,node_modules,dist,build} | head -n 50`;
-        result = this.shell.execute(grepCmd);
-        if (!result.trim()) result = `Không tìm thấy kết quả cho từ khóa: "${query}"`;
-        break;
+        case "read_structure":
+          const targetPath = parameters.path || ".";
+          const findCmd = `find ${targetPath} -maxdepth 3 -not -path '*/.*' -not -path '*node_modules*' -not -path '*dist*'`;
+          result = await this.shell.execute(findCmd);
+          break;
 
-      case "ask_human":
-        result = await this.rl.question(`❓ AGENT HỎI: ${parameters.query}\n👉 Trả lời: `);
-        this.actionHistory = [];
-        break;
+        case "search_grep":
+        case "search_code":
+          const query = parameters.query;
+          const path = parameters.path || ".";
+          const grepCmd = `grep -rnI "${query}" ${path} --exclude-dir={.git,node_modules,dist,build} | head -n 50`;
+          result = await this.shell.execute(grepCmd);
+          if (!result.trim()) result = `Không tìm thấy kết quả cho từ khóa: "${query}"`;
+          break;
 
-      case "web_search":
-        result = await this.browser.search(parameters.query);
-        break;
+        case "ask_human":
+          console.log("\n--- CHỜ PHẢN HỒI ---");
+          result = await this.rl.question(`❓ AGENT HỎI: ${parameters.query}\n👉 Trả lời: `);
+          this.actionHistory = []; // Reset history sau khi có input từ người
+          break;
 
-      default:
-        result = "Lỗi: Tool không được hỗ trợ.";
+        case "web_search":
+          result = await this.browser.search(parameters.query);
+          break;
+
+        case "debug_service":
+          const { type, lines = 20 } = parameters;
+          if (type === "logs") result = await this.shell.execute(`tail -n ${lines} ${this.EXEC_LOG_PATH}`);
+          else if (type === "process") result = await this.shell.execute(`ps aux | head -n ${lines}`);
+          else if (type === "network") result = await this.shell.execute(`netstat -tunlp`);
+          break;
+
+        default:
+          result = `Lỗi: Tool "${tool}" không tồn tại.`;
+      }
+    } catch (e: any) {
+      result = `Lỗi thực thi tool: ${e.message}`;
     }
 
-    // Ghi lại kết quả thực thi vào log hệ thống để kiểm soát
     this.logActivity("RESULT", result.substring(0, 1000) + (result.length > 1000 ? "..." : ""));
-    return result;
+    const pwd = await this.shell.execute("pwd");
+    return `[Vị trí: ${pwd.trim()}]\n${result}`;
   }
 
   private async handleFileOp(p: any): Promise<string> {
@@ -196,26 +223,10 @@ export class AgentEngine {
     switch (action) {
       case "write":
         const base64 = Buffer.from(content || "").toString("base64");
-        return this.shell.execute(`
-          mkdir -p "$(dirname "${filePath}")" && 
-          echo "${base64}" | base64 --decode > "${filePath}" && 
-          echo "Ghi file ${filePath} thành công."
-        `);
+        return this.shell.execute(`mkdir -p "$(dirname "${filePath}")" && echo "${base64}" | base64 --decode > "${filePath}" && echo "Ghi file thành công."`);
       
       case "read":
-        return this.shell.execute(`
-          if [ -f "${filePath}" ]; then
-            FILE_SIZE=$(stat -c%s "${filePath}")
-            if [ "$FILE_SIZE" -gt 51200 ]; then
-              echo "FILE QUÁ LỚN ($FILE_SIZE bytes). Chỉ hiển thị 100 dòng đầu:"
-              head -n 100 "${filePath}"
-            else
-              cat "${filePath}"
-            fi
-          else
-            echo "Lỗi: File không tồn tại."
-          fi
-        `);
+        return this.shell.execute(`if [ -f "${filePath}" ]; then FILE_SIZE=$(stat -c%s "${filePath}"); if [ "$FILE_SIZE" -gt 51200 ]; then echo "FILE QUÁ LỚN. 100 dòng đầu:"; head -n 100 "${filePath}"; else cat "${filePath}"; fi; else echo "Lỗi: File không tồn tại."; fi`);
       
       case "list":
         return this.shell.execute(`ls -F "${filePath || "."}"`);
@@ -224,8 +235,8 @@ export class AgentEngine {
         return this.shell.execute(`mkdir -p "${filePath}" && echo "Đã tạo thư mục: ${filePath}"`);
         
       case "delete":
-        const confirm = await this.rl.question(`❓ Xóa "${filePath}"? (y/n): `);
-        return confirm.toLowerCase() === 'y' ? this.shell.execute(`rm -rf "${filePath}" && echo "Đã xóa."`) : "Hủy xóa.";
+        const confirm = await this.rl.question(`\n❓ Xóa "${filePath}"? (y/n): `);
+        return confirm.toLowerCase() === 'y' ? this.shell.execute(`rm -rf "${filePath}"`) : "Hủy xóa.";
 
       default:
         return "Hành động file không hợp lệ.";
@@ -235,33 +246,28 @@ export class AgentEngine {
   private parseResponse(content: string) {
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+      if (!jsonMatch) return null;
+      return JSON.parse(jsonMatch[0]);
     } catch (e) {
       return null;
     }
   }
 
-  /**
-   * Lưu bước chạy vào bối cảnh (messages)
-   * Tối ưu hóa log hệ thống để tránh làm tràn Context gây lỗi Socket
-   */
   private addStep(decision: any, result: string) {
-    // Tối ưu hóa: Nếu result từ các task thực thi (như npm install) quá dài
-    // Chúng ta chỉ giữ lại phần đầu và phần cuối quan trọng nhất.
     const MAX_LOG_LENGTH = 4000;
     let optimizedResult = result;
 
     if (result.length > MAX_LOG_LENGTH) {
       optimizedResult = 
         result.substring(0, 1500) + 
-        "\n\n... [HỆ THỐNG: Cắt bớt " + (result.length - 3000) + " ký tự log trung gian để tối ưu payload] ...\n\n" + 
+        "\n\n... [HỆ THỐNG: Cắt bớt log trung gian] ...\n\n" + 
         result.substring(result.length - 1500);
     }
 
     this.messages.push({ role: "assistant", content: JSON.stringify(decision) });
     this.messages.push({ role: "user", content: `Kết quả hệ thống: ${optimizedResult}` });
     
-    // Giữ Context trong giới hạn an toàn (khoảng 15-20 lượt trao đổi gần nhất)
+    // Giữ Context trong giới hạn an toàn để tránh lag payload
     if (this.messages.length > 40) {
       this.messages.splice(1, 2); 
     }

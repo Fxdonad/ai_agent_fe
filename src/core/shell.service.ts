@@ -4,7 +4,7 @@ export class ShellService {
   // Đồng bộ với cấu hình VM của bạn
   public readonly workingDir = "/home/fxdonad/Fxdonad/Agent/App";
 
-  execute(command: string): string {
+  async execute(command: string): Promise<string> {
     // Đảm bảo thư mục hoạt động tồn tại
     const wrappedCommand = `
       mkdir -p ${this.workingDir} && cd ${this.workingDir} && 
@@ -17,7 +17,7 @@ export class ShellService {
     const base64Cmd = Buffer.from(wrappedCommand).toString("base64");
     
     try {
-      const output = execSync(
+      const output = await execSync(
         `echo "${base64Cmd}" | base64 --decode | bash`,
         {
           stdio: ["pipe", "pipe", "pipe"],
