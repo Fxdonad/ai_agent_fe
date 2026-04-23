@@ -44,19 +44,14 @@ export class AgentEngine {
 
     console.log("\n" + "=".repeat(50));
     console.log(`👤 ĐANG CHẠY DƯỚI USER: [ ${realUser} ]`);
-    
-    // Nếu bạn muốn ép buộc chỉ chạy dưới quyền agent, hãy bỏ comment 3 dòng dưới:
-    // if (realUser !== "agent") {
-    //   console.error("❌ LỖI BẢO MẬT: Agent phải được chạy bởi user 'agent' thông qua Systemd.");
-    //   process.exit(1); 
-    // }
-    
     console.log(`📂 WORKING DIR: ${process.cwd()}`);
     console.log("=".repeat(50) + "\n");
+
     this.messages.push({
       role: "system",
       content: PromptManager.loadConfigs(),
     });
+
     if (!fs.existsSync(this.EXEC_LOG_PATH)) {
       fs.writeFileSync(
         this.EXEC_LOG_PATH,
@@ -85,7 +80,7 @@ export class AgentEngine {
     this.messages.push({ role: "user", content: goal });
     this.logActivity("GOAL", goal);
 
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 100; i++) { // Tăng lên tối đa 100 lượt
       try {
         process.stdout.write(`\r🤖 [Lượt ${i}] Đang gửi yêu cầu tới LLM... `);
         const rawResponse = await this.askLLM();
@@ -117,7 +112,6 @@ export class AgentEngine {
         console.log(`\n🤔 SUY NGHĨ [${i}]: ${decision.thought}`);
         this.logActivity("THOUGHT", decision.thought);
 
-        // Đánh dấu bắt đầu thực thi để tránh cảm giác đóng băng
         process.stdout.write(`⚙️ Đang thực thi tool [${decision.tool}]... `);
         const result = await this.executeDecision(decision);
         process.stdout.write(`✅ Xong.\n`);
@@ -132,9 +126,13 @@ export class AgentEngine {
         console.log(`\n💥 Lỗi: ${err.message}`);
         const errorMsg = `Lỗi hệ thống: ${err.message}`;
         this.logActivity("FATAL_ERROR", errorMsg);
-        this.addStep({ tool: "error", parameters: {} }, errorMsg);
+        
+        // Nếu là lỗi 400, thử cắt bớt context rồi mới addStep
+        if (err.response?.status === 400) {
+           this.pruneContext(true);
+        }
 
-        // Nghỉ một chút trước khi retry để tránh spam nếu lỗi mạng
+        this.addStep({ tool: "error", parameters: {} }, errorMsg);
         await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -154,9 +152,8 @@ export class AgentEngine {
     const maxRetries = 5;
     const retryDelays = [2000, 4000, 8000, 16000, 32000];
 
-    // Sử dụng AbortController để chủ động ngắt socket nếu treo quá lâu
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 240000); // 3 phút
+    const timeoutId = setTimeout(() => controller.abort(), 300000); 
 
     try {
       const res = await axios.post(
@@ -168,7 +165,7 @@ export class AgentEngine {
           response_format: Gemma34bConfig.structureResponse,
         },
         {
-          timeout: 240000,
+          timeout: 300000,
           signal: controller.signal,
           headers: { Connection: "keep-alive" },
         },
@@ -184,6 +181,14 @@ export class AgentEngine {
       return content;
     } catch (err: any) {
       clearTimeout(timeoutId);
+      
+      // Xử lý tràn ngữ cảnh (HTTP 400)
+      if (err.response?.status === 400 && retryCount < maxRetries) {
+        this.logActivity("CONTEXT_LIMIT", "Phát hiện đầy bộ nhớ, đang cắt tỉa...");
+        this.pruneContext(true);
+        return this.askLLM(retryCount + 1);
+      }
+
       const isNetworkError =
         err.code === "ECONNRESET" ||
         err.message.includes("socket hang up") ||
@@ -195,11 +200,7 @@ export class AgentEngine {
         console.log(
           `\n📡 Lỗi kết nối (${err.message}). Thử lại ${retryCount + 1}/${maxRetries} sau ${delay}ms...`,
         );
-        this.logActivity("RETRY", {
-          attempt: retryCount + 1,
-          error: err.message,
-        });
-
+        this.logActivity("RETRY", { attempt: retryCount + 1, error: err.message });
         await new Promise((resolve) => setTimeout(resolve, delay));
         return this.askLLM(retryCount + 1);
       }
@@ -240,19 +241,16 @@ export class AgentEngine {
         case "search_grep":
         case "search_code":
           const query = parameters.query;
-          const path = parameters.path || ".";
-          const grepCmd = `grep -rnI "${query}" ${path} --exclude-dir={.git,node_modules,dist,build} | head -n 50`;
+          const searchPath = parameters.path || ".";
+          const grepCmd = `grep -rnI "${query}" ${searchPath} --exclude-dir={.git,node_modules,dist,build} | head -n 50`;
           result = await this.shell.execute(grepCmd);
-          if (!result.trim())
-            result = `Không tìm thấy kết quả cho từ khóa: "${query}"`;
+          if (!result.trim()) result = `Không tìm thấy kết quả cho từ khóa: "${query}"`;
           break;
 
         case "ask_human":
           console.log("\n--- CHỜ PHẢN HỒI ---");
-          result = await this.rl.question(
-            `❓ AGENT HỎI: ${parameters.query}\n👉 Trả lời: `,
-          );
-          this.actionHistory = []; // Reset history sau khi có input từ người
+          result = await this.rl.question(`❓ AGENT HỎI: ${parameters.query}\n👉 Trả lời: `);
+          this.actionHistory = []; 
           break;
 
         case "web_search":
@@ -262,9 +260,7 @@ export class AgentEngine {
         case "debug_service":
           const { type, lines = 20 } = parameters;
           if (type === "logs")
-            result = await this.shell.execute(
-              `tail -n ${lines} ${this.EXEC_LOG_PATH}`,
-            );
+            result = await this.shell.execute(`tail -n ${lines} ${this.EXEC_LOG_PATH}`);
           else if (type === "process")
             result = await this.shell.execute(`ps aux | head -n ${lines}`);
           else if (type === "network")
@@ -278,10 +274,7 @@ export class AgentEngine {
       result = `Lỗi thực thi tool: ${e.message}`;
     }
 
-    this.logActivity(
-      "RESULT",
-      result.substring(0, 1000) + (result.length > 1000 ? "..." : ""),
-    );
+    this.logActivity("RESULT", result.substring(0, 500) + (result.length > 500 ? "..." : ""));
     const pwd = await this.shell.execute("pwd");
     return `[Vị trí: ${pwd.trim()}]\n${result}`;
   }
@@ -305,14 +298,10 @@ export class AgentEngine {
         return this.shell.execute(`ls -F "${filePath || "."}"`);
 
       case "mkdir":
-        return this.shell.execute(
-          `mkdir -p "${filePath}" && echo "Đã tạo thư mục: ${filePath}"`,
-        );
+        return this.shell.execute(`mkdir -p "${filePath}" && echo "Đã tạo thư mục: ${filePath}"`);
 
       case "delete":
-        const confirm = await this.rl.question(
-          `\n❓ Xóa "${filePath}"? (y/n): `,
-        );
+        const confirm = await this.rl.question(`\n❓ Xóa "${filePath}"? (y/n): `);
         return confirm.toLowerCase() === "y"
           ? this.shell.execute(`rm -rf "${filePath}"`)
           : "Hủy xóa.";
@@ -332,6 +321,14 @@ export class AgentEngine {
     }
   }
 
+  private pruneContext(aggressive = false) {
+    if (this.messages.length > (aggressive ? 10 : 35)) {
+      const count = aggressive ? 10 : 2;
+      this.messages.splice(1, count); // Giữ tin nhắn System ở index 0
+      this.logActivity("PRUNE", `Đã xóa ${count} tin nhắn cũ.`);
+    }
+  }
+
   private addStep(decision: any, result: string) {
     const MAX_LOG_LENGTH = 4000;
     let optimizedResult = result;
@@ -339,7 +336,7 @@ export class AgentEngine {
     if (result.length > MAX_LOG_LENGTH) {
       optimizedResult =
         result.substring(0, 1500) +
-        "\n\n... [HỆ THỐNG: Cắt bớt log trung gian] ...\n\n" +
+        "\n\n... [HỆ THỐNG: Cắt bớt log để tránh đầy bộ nhớ] ...\n\n" +
         result.substring(result.length - 1500);
     }
 
@@ -352,9 +349,6 @@ export class AgentEngine {
       content: `Kết quả hệ thống: ${optimizedResult}`,
     });
 
-    // Giữ Context trong giới hạn an toàn để tránh lag payload
-    if (this.messages.length > 40) {
-      this.messages.splice(1, 2);
-    }
+    this.pruneContext(false);
   }
 }
