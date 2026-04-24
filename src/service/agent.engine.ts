@@ -65,7 +65,8 @@ export class AgentEngine {
     fs.appendFileSync(this.EXEC_LOG_PATH, logEntry);
   }
 
-  private isDangerousCommand(cmd: string): boolean {
+  private isDangerousCommand(cmd: unknown): boolean {
+    if (typeof cmd !== "string" || !cmd.trim()) return false;
     const lowerCmd = cmd.toLowerCase();
     return this.DANGEROUS_KEYWORDS.some((keyword) =>
       lowerCmd.includes(keyword),
@@ -210,7 +211,8 @@ export class AgentEngine {
   }
 
   private async executeDecision(decision: any): Promise<string> {
-    const { tool, parameters } = decision;
+    const { tool } = decision;
+    const parameters = decision?.parameters ?? {};
     let result = "";
 
     this.logActivity("TOOL_USE", tool);
@@ -226,6 +228,11 @@ export class AgentEngine {
           break;
 
         case "execute_command":
+          if (typeof parameters.command !== "string" || !parameters.command.trim()) {
+            result =
+              'Lỗi: Thiếu "parameters.command" hợp lệ cho tool execute_command.';
+            break;
+          }
           if (this.isDangerousCommand(parameters.command)) {
             const confirm = await this.rl.question(
               `\n⚠️ LỆNH NGUY HIỂM: "${parameters.command}". Chạy không? (y/n): `,

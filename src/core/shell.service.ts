@@ -120,7 +120,7 @@ export class ShellService {
       })
         .toString()
         .trim();
-      return `BACKGROUND_STARTED pid=${pid} log=${this.workingDir}/${escapedLogFile}`;
+      return `BACKGROUND_STARTED pid=${pid} log=${this.workingDir}${escapedLogFile}`;
     } catch (e: any) {
       return `[ERROR] Không thể chạy background: ${e?.stderr?.toString?.() || e?.message || "Unknown error"}`;
     }
