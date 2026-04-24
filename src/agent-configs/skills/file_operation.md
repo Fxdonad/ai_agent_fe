@@ -1,37 +1,42 @@
-# Skill: File & Folder CRUD (VM Optimized)
+# Skill: File Operation (CRUD File/Folder)
 
-Sử dụng công cụ này để thao tác trực tiếp với tệp tin và thư mục trên hệ thống Ubuntu VM. Công cụ này giúp tránh các lỗi cú pháp khi dùng `echo` hoặc `cat` trong terminal.
+Chuyên môn: đọc, ghi, liệt kê, tạo thư mục, xóa file/folder trong workspace.
 
-### Các hành động hỗ trợ:
+## Khi dùng
 
-- `read`: Đọc nội dung file. Hãy đọc trước khi sửa để đảm bảo không làm mất logic cũ.
-- `write`: Tạo hoặc cập nhật file. Hệ thống tự động thực hiện `mkdir -p` cho các thư mục cha nếu chưa tồn tại.
-- `mkdir`: Tạo thư mục mới.
-- `delete`: Xóa file hoặc thư mục. **Lưu ý:** Trên VM, hành động này là vĩnh viễn (không có thùng rác).
-- `list`: Liệt kê danh sách file/thư mục.
+- Cần chỉnh sửa nội dung file có kiểm soát.
+- Cần tạo file mới hoặc thư mục mới.
+- Cần đọc file để phân tích trước khi sửa.
 
-### QUY TẮC ĐƯỜNG DẪN & VẬN HÀNH TRÊN VM:
+## Không dùng
 
-1. **Thư mục gốc (Working Directory):** - Mọi thao tác mặc định diễn ra tại: {{AGENT_WORK_DIR}}/App.
-   - Luôn sử dụng **đường dẫn tương đối** (ví dụ: `src/main.tsx` thay vì `/home/fxdonad/.../src/main.tsx`) để đảm bảo tính gọn gàng.
+- Không dùng để chạy build/test/dev server (dùng `execute_command`).
+- Không dùng `delete` nếu chưa chắc chắn phạm vi; ưu tiên hỏi lại user.
 
-2. **Đồng bộ với Terminal:**
-   - Khi bạn dùng `execute_command` để tạo dự án (ví dụ: `npm create vite`), dự án sẽ tạo ra một thư mục con (ví dụ: `my-app`).
-   - Lúc này, các lệnh `file_operation` tiếp theo PHẢI bao gồm tên thư mục đó trong `path` (ví dụ: `path: "my-app/package.json"`).
+## Action hỗ trợ
 
-3. **Cảnh báo ghi đè:**
-   - Trên VM, file cũ không bị xóa khi khởi động lại. Trước khi `write`, hãy dùng `list` hoặc `read_structure` để kiểm tra file đã tồn tại chưa.
-   - Nếu ghi đè một file cấu hình quan trọng (như `vite.config.ts`), hãy `read` nó trước để giữ lại các thiết lập cần thiết.
+- `read`: đọc nội dung file.
+- `write`: ghi đè/tạo mới file.
+- `list`: liệt kê file/thư mục.
+- `mkdir`: tạo thư mục.
+- `delete`: xóa file/thư mục.
 
-4. **Xử lý lỗi quyền hạn (Permissions):**
-   - Nếu gặp lỗi `Permission denied`, điều này có nghĩa là file/thư mục đó thuộc quyền sở hữu của `root` hoặc user khác.
-   - Tuyệt đối không tự ý dùng `sudo` trong `file_operation`. Nếu cần thay đổi quyền, hãy dùng `ask_human`.
+## JSON tool-call mẫu
 
-5. **Lệnh kết hợp:**
-   - Khi dùng `execute_command`, hãy luôn nhớ: `cd path/to/dir && <command>`. Trạng thái `cd` không được lưu giữ giữa các lần gọi tool khác nhau.
+```json
+{
+  "thought": "Cần cập nhật file cấu hình theo yêu cầu người dùng",
+  "tool": "file_operation",
+  "parameters": {
+    "action": "write",
+    "path": "src/config/app.ts",
+    "content": "export const APP_NAME = \"AI Agent\";"
+  }
+}
+```
 
-### Ví dụ luồng làm việc chuẩn trên VM:
+## Quy tắc chất lượng
 
-- **Bước 1:** `execute_command` -> `npm create vite@latest my-app -- --template react`
-- **Bước 2:** `file_operation` (list) -> `path: "my-app"` (Xác nhận thư mục đã tạo thành công).
-- **Bước 3:** `file_operation` (write) -> `path: "my-app/src/App.css"`, `content: "..."`
+1. Đọc file trước khi ghi đè để tránh mất logic cũ.
+2. Dùng path tương đối theo workspace để tránh ghi nhầm vị trí.
+3. Với file quan trọng (`package.json`, config, env), luôn kiểm tra lại sau khi ghi.

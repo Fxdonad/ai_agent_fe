@@ -1,12 +1,34 @@
 # Skill: Debug Service
 
-Sử dụng công cụ này khi bạn đã chạy một lệnh background (như npm run dev, ...) nhưng không biết nó có chạy thành công hay không.
+Chuyên môn: chẩn đoán trạng thái runtime sau khi chạy app/service.
 
-- `type: logs`: Đọc 50 dòng cuối của file `server.log`. nếu kiểm tra chưa tồn tại tại {{AGENT_WORK_DIR}}/App thì hãy tạo mới nó tại {{AGENT_WORK_DIR}}/App/server.log
-- `type: process`: Kiểm tra xem tiến trình có bị "die" giữa chừng không.
-- `type: network`: Kiểm tra xem port được yêu cầu có vấn đề gì không, báo cho human về thông tin nếu có
+## Khi dùng
 
-# Quy tắc Debug:
+- Nghi ngờ process chết ngầm sau khi chạy lệnh.
+- Cần đọc log nhanh để tìm nguyên nhân lỗi.
+- Nghi ngờ port conflict hoặc lỗi kết nối.
 
-1. Nếu bạn chạy `npm run dev` và thấy "Thành công", đừng vội tin. Hãy dùng `debug_service` để đọc log.
-2. Nếu gặp lỗi trắng trang hoặc lỗi kết nối, hãy kiểm tra `network` và `logs`.
+## Tham số `type`
+
+- `logs`: đọc log thực thi gần nhất.
+- `process`: kiểm tra tiến trình đang chạy.
+- `network`: kiểm tra trạng thái cổng mạng.
+
+## JSON tool-call mẫu
+
+```json
+{
+  "thought": "Cần xác nhận server có đang chạy và lắng nghe đúng port không",
+  "tool": "debug_service",
+  "parameters": {
+    "type": "network"
+  }
+}
+```
+
+## Quy trình khuyến nghị
+
+1. Xem `process`.
+2. Xem `logs`.
+3. Kiểm tra `network`.
+4. Tóm tắt nguyên nhân gốc + đề xuất fix cụ thể.

@@ -1,13 +1,26 @@
 # Skill: Task Management & Handover
-Sử dụng công cụ này khi bạn tin rằng mình đã hoàn thành mục tiêu ban đầu của người dùng hoặc một cột mốc quan trọng.
-## Mục đích
- - Xác nhận kết quả công việc với người dùng.
- - Trình bày tóm tắt những gì đã làm được.
- - Nhận phản hồi hoặc yêu cầu (task) tiếp theo.
-## Quy trình thực hiện
- 1. Tổng hợp: Trước khi gọi tool, hãy liệt kê các file đã tạo, các lệnh đã chạy thành công và trạng thái hiện tại của ứng dụng.
- 2. Nghiệm thu: Sử dụng ask_human với một nội dung tóm tắt chuyên nghiệp.
- 3. Chuyển giao: Hỏi người dùng xem họ có muốn sửa đổi gì không hoặc có task mới nào cần thực hiện tiếp hay không.
-## Mẫu câu hỏi (Dùng trong ask_human)
-"Tôi đã hoàn thành việc cài đặt môi trường và tạo cấu trúc dự án React tại [path]. Bạn có muốn tôi tiến hành viết code cho Component đầu tiên không?"
-"Task [Tên Task] đã xong. Tôi đã kiểm tra và ứng dụng chạy tốt tại port 3000. Bạn có yêu cầu nào tiếp theo cho tôi không?"
+
+Chuyên môn: đóng task theo mốc, bàn giao rõ ràng, mở nhịp làm việc tiếp theo.
+
+## Khi dùng
+
+- Đã hoàn thành mục tiêu người dùng.
+- Hoàn thành một milestone lớn cần nghiệm thu trước khi đi tiếp.
+
+## Quy trình bàn giao
+
+1. Tóm tắt những gì đã làm (file thay đổi, lệnh đã chạy, kết quả chính).
+2. Nêu trạng thái hiện tại (pass/fail/chưa xác minh).
+3. Dùng `ask_human` để xin xác nhận hoặc chọn bước tiếp theo.
+
+## Mẫu `ask_human`
+
+```json
+{
+  "thought": "Đã xong milestone đầu tiên, cần user xác nhận trước khi mở rộng phạm vi",
+  "tool": "ask_human",
+  "parameters": {
+    "query": "Mình đã hoàn tất phần refactor skill prompts. Bạn muốn mình tiếp tục tối ưu luôn system prompt trong PromptManager không?"
+  }
+}
+```

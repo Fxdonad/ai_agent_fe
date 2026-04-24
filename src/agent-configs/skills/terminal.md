@@ -1,30 +1,71 @@
 # Skill: Terminal Execution
 
-Hành động: Thực thi lệnh Bash bên trong Docker Sandbox.
-Định dạng yêu cầu (JSON):
-{
-"thought": "Lý do chạy lệnh này",
-"tool": "execute_command",
-"parameters": { "command": "string" }
-}
+Chuyên môn: chạy lệnh shell để cài đặt, build, test, chạy app, kiểm tra process/network.
 
-# Skill: Terminal Control
+## Khi dùng
 
-Dùng để thực thi các lệnh bash shell bên trong môi trường Docker Ubuntu.
+- Cài package hoặc chạy script (`npm`, `pnpm`, `pip`, `apt`).
+- Build/test/lint hoặc chạy runtime (`npm run build`, `npm test`, `node ...`).
+- Kiểm tra trạng thái môi trường (`pwd`, `ls`, `ps`, `netstat`, `tail`).
 
-## Hướng dẫn sử dụng:
+## Không dùng
 
-- Sử dụng khi người dùng yêu cầu cài đặt package (npm, pip).
-- Sử dụng khi cần kiểm tra file (ls, cat) hoặc kiểm tra log.
-- Sử dụng khi cần chạy thử code (node, python3).
+- Không dùng để ghi nội dung file lớn bằng `echo/cat <<EOF`; hãy dùng `file_operation`.
+- Không chạy lệnh tương tác cần nhập tay.
 
-## Định dạng phản hồi (Tool Call):
-
-Nếu bạn muốn chạy một lệnh, hãy trả về duy nhất khối JSON sau:
+## JSON tool-call chuẩn
 
 ```json
 {
-  "action": "execute_binary",
-  "command": "lệnh_bash_của_bạn"
+  "thought": "Cần chạy lệnh kiểm tra hoặc thực thi trong terminal",
+  "tool": "execute_command",
+  "parameters": {
+    "command": "npm run build",
+    "timeout_ms": 900000
+  }
 }
 ```
+
+## Mẫu nâng cao
+
+- Chay lenh lau (install/build): dat `timeout_ms` lon hon mac dinh.
+- Lenh it output: them `verify_command` de xac nhan side-effect.
+- Lenh dai han (dev/watch): dat `mode: "background"` va `log_file`.
+- Khi chay nen, uu tien bat health-check loop de doi service "ready" roi moi di tiep.
+- Neu health-check fail/timeout, he thong se tu dong cleanup process (mac dinh). Co the tat bang `auto_cleanup_on_unhealthy: false`.
+
+```json
+{
+  "thought": "Can cai package va xac nhan da cai xong",
+  "tool": "execute_command",
+  "parameters": {
+    "command": "npm i axios",
+    "timeout_ms": 1200000,
+    "verify_command": "npm ls axios --depth=0",
+    "always_verify": true
+  }
+}
+```
+
+```json
+{
+  "thought": "Can chay dev server va doi khi he thong san sang",
+  "tool": "execute_command",
+  "parameters": {
+    "mode": "background",
+    "command": "npm run dev",
+    "log_file": "dev-server.log",
+    "health_check": true,
+    "ready_pattern": "ready|listening|compiled successfully",
+    "health_timeout_ms": 180000,
+    "health_interval_ms": 3000,
+    "auto_cleanup_on_unhealthy": true
+  }
+}
+```
+
+## Quy tắc an toàn
+
+1. Luôn quote path có khoảng trắng.
+2. Với lệnh có rủi ro xóa/sửa rộng, phải xin xác nhận người dùng trước.
+3. Nếu lệnh thất bại, nêu nguyên nhân chính rồi mới retry bằng chiến thuật khác.

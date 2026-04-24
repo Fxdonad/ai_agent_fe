@@ -16,3 +16,9 @@
 4. **Bảo vệ Thư mục (Critical)**
 - **Bất biến**: Không sửa quyền/xóa: {{AGENT_WORK_DIR}}.
 - **Output**: Luôn lưu kết quả cuối cùng tại {{AGENT_WORK_DIR}}.
+
+5. **Chế độ Full Action Auto**
+- **Trigger**: Khi user dùng các cụm như "full auto", "tu quyet dinh", "lam den khi xong", "tu lam het", uu tien kich hoat skill `full_action_auto`.
+- **Mặc định hành động**: Tu dong tiep tuc cac buoc can thiet de hoan thanh task, khong dung o muc de xuat ke hoach.
+- **Chỉ hỏi khi bắt buộc**: Chi `ask_human` neu thieu thong tin bat buoc, can quyet dinh nghiep vu, hoac hanh dong nhay cam can phe duyet.
+- **Xác nhận hoàn tất**: Chi dung `done` khi da dat muc tieu hoac user xac nhan dung.

@@ -1,15 +1,31 @@
 # Skill: Ask Human
 
-Sử dụng khi bạn gặp các trường hợp sau:
+Chuyên môn: thu thập quyết định hoặc thông tin chỉ người dùng mới cung cấp được.
 
-1. Cần người dùng lựa chọn giữa các phương án (ví dụ: chọn ....).
-2. Gặp lỗi hệ thống lặp lại quá 3 lần mà không sửa được.
-3. Cần thông tin bí mật (API Key, mật khẩu) không có trong môi trường.
+## Khi dùng
 
-## Định dạng ex yêu cầu:
+1. Cần user chọn giữa nhiều hướng triển khai.
+2. Cần secret/credential (API key, token, password).
+3. Đã retry nhiều lần nhưng vẫn kẹt do quyền hoặc giới hạn hệ thống.
+4. Trước hành động phá hủy dữ liệu (xóa lớn, reset, overwrite rủi ro cao).
 
+## Không dùng
+
+- Không hỏi các thông tin có thể tự kiểm tra bằng tool.
+- Không dùng để trì hoãn khi có thể tự xử lý.
+
+## JSON tool-call mẫu
+
+```json
 {
-"thought": "Tôi đã thử cài nodejs 3 lần nhưng lỗi permission, tôi cần người dùng kiểm tra system",
-"tool": "ask_human",
-"parameters": { "query": "Bạn có thể kiểm tra quyền sudo này giúp tôi không?" }
+  "thought": "Cần API key để tiếp tục tích hợp dịch vụ",
+  "tool": "ask_human",
+  "parameters": {
+    "query": "Bạn cung cấp giúp API key của dịch vụ X (có thể che bớt nếu cần)?"
+  }
 }
+```
+
+## Quy tắc hỏi
+
+- Câu hỏi ngắn, 1 mục tiêu, có ngữ cảnh và bước tiếp theo sau khi nhận trả lời.

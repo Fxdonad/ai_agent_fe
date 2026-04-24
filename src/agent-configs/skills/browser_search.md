@@ -1,16 +1,27 @@
 # Skill: Browser Search
 
-Dùng để tìm kiếm thông tin trên Google hoặc đọc nội dung từ một trang web khi kiến trúc/thư viện quá mới hoặc cần tra lỗi.
+Chuyên môn: tra cứu tài liệu bên ngoài khi code local không đủ dữ liệu.
 
-## Định dạng yêu cầu (JSON):
+## Khi dùng
 
-```
+- Framework/library mới hoặc thay đổi version cần xác minh.
+- Debug lỗi runtime/build mà log local không đủ thông tin.
+- Cần đối chiếu best practice chính thức từ docs.
+
+## Không dùng
+
+- Không tra web cho thông tin có sẵn trong source code hiện tại.
+- Không dùng để suy đoán; luôn dựa vào nguồn cụ thể.
+
+## JSON tool-call mẫu
+
+```json
 {
-  "thought": "Lý do cần tìm kiếm (ví dụ: tra cứu nội dung A, key word B, thông tin quan trọng C, thông tin cần tìm D)",
+  "thought": "Cần tra tài liệu chính thức cho lỗi hydration trong React",
   "tool": "web_search",
   "parameters": {
-  "query": "từ khóa tìm kiếm",
-  "max_results": 3
+    "query": "React hydration mismatch best practices",
+    "max_results": 3
   }
 }
 ```

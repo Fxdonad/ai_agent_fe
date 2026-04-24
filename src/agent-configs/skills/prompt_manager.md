@@ -1,43 +1,30 @@
-# Skill: Respond to User
+# Skill: Prompt Manager (Điều phối phản hồi)
 
-Sử dụng công cụ này khi:
+Skill này chỉ mô tả nguyên tắc điều phối hội thoại và ra quyết định tool.
+Nó KHONG thay thế các skill thao tác kỹ thuật như `terminal`, `file_operation`, `search_grep`.
 
-1. Người dùng chỉ chào hỏi hoặc nói chuyện phiếm.
-2. Người dùng yêu cầu giải thích một khái niệm, cung cấp thông tin mà không cần thực thi code hay tìm kiếm.
-3. Bạn muốn xác nhận lại yêu cầu trước khi bắt đầu thực hiện các bước kỹ thuật.
+## Mục tiêu
 
-## Định dạng:
+- Giữ phản hồi ngắn gọn, bám mục tiêu người dùng.
+- Chọn đúng tool theo ngữ cảnh, tránh gọi tool dư thừa.
+- Tự phục hồi lỗi phổ biến trước khi hỏi người dùng.
 
-{
-"thought": "Người dùng chỉ chào hỏi, tôi sẽ chào lại và hỏi xem họ cần giúp gì về dự án.",
-"tool": "respond_to_user",
-"parameters": { "content": "Xin chào! Tôi là Code Agent. Tôi đã sẵn sàng hỗ trợ bạn xây dựng dự án React. Bạn muốn bắt đầu từ đâu?" }
-}
+## Khi dùng
 
-# Skill: Ask Human
+1. Người dùng chỉ hỏi thông tin/giải thích, chưa cần thao tác hệ thống.
+2. Cần xác nhận scope trước khi thực thi chuỗi thao tác lớn.
+3. Cần quyết định dùng tool nào tiếp theo trong nhiều lựa chọn.
 
-Sử dụng khi bạn cần thông tin cụ thể (API Key, màu sắc, lựa chọn) để có thể chạy bước tiếp theo.
-Hệ thống sẽ tạm dừng và hiện dòng lệnh cho người dùng nhập.
+## Không dùng
 
-## Định dạng:
+- Không dùng skill này để chạy shell hay CRUD file trực tiếp.
+- Không nhồi JSON tool-call giả vào phản hồi khi chưa thật sự cần gọi tool.
 
-{
-"thought": "Tôi cần biết màu chủ đạo của Landing Page để viết CSS.",
-"tool": "ask_human",
-"parameters": { "query": "Bạn muốn website sử dụng tông màu chủ đạo nào (ví dụ: Xanh dương, Tối, Sáng)?" }
-}
+## Quy tắc điều phối
 
-# Self-Healing Protocol: Directory Errors
-
-Nếu bạn nhận được lỗi "No such file or directory" khi đang cố gắng tạo file:
-
-1. KHÔNG ĐƯỢC hỏi người dùng.
-2. Hãy phân tích đường dẫn file bạn định tạo.
-3. Chạy lệnh `mkdir -p <thư mục cha>` ngay lập tức.
-4. Thử lại lệnh tạo file ban đầu.
-
-# Ví dụ:
-
-- Lệnh lỗi: `cat > src/styles/main.scss << EOF...`
-- Lỗi: `bash: src/styles/main.scss: No such file or directory`
-- Hành động sửa lỗi: `mkdir -p src/styles && cat > src/styles/main.scss << EOF...`
+1. Ưu tiên xử lý tự động các lỗi rõ ràng trước khi `ask_human`.
+2. Nếu lỗi thiếu thư mục (`No such file or directory`) khi ghi file:
+   - Tự tạo thư mục cha rồi thử lại.
+   - Chỉ hỏi user nếu vẫn lỗi sau khi đã tự phục hồi.
+3. Mỗi vòng xử lý chỉ chọn 1 mục tiêu chính, tránh gom nhiều tác vụ không liên quan.
+4. Khi hoàn tất mục tiêu, chuyển sang `task_management` để bàn giao trạng thái.

@@ -5,7 +5,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { ShellService } from "../core/shell.service.js";
 import { BrowserService } from "../core/browser.service.js";
 import { PromptManager } from "./prompt.manager.js";
-import { Gemma34bConfig } from "../model/gemma-3-4b.response.js";
+import { Gemma4e4bConfig } from "../model/gemma-4-e4b.response.js";
 import { execSync } from "node:child_process";
 import env from "../environment.js";
 
@@ -153,19 +153,19 @@ export class AgentEngine {
     const retryDelays = [2000, 4000, 8000, 16000, 32000];
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000); 
+    const timeoutId = setTimeout(() => controller.abort(), 600000); 
 
     try {
       const res = await axios.post(
         this.LMS_URL,
         {
-          model: Gemma34bConfig.modelName,
+          model: Gemma4e4bConfig.modelName,
           messages: this.messages,
           temperature: 0.1,
-          response_format: Gemma34bConfig.structureResponse,
+          response_format: Gemma4e4bConfig.structureResponse,
         },
         {
-          timeout: 300000,
+          timeout: 600000,
           signal: controller.signal,
           headers: { Connection: "keep-alive" },
         },
@@ -217,6 +217,14 @@ export class AgentEngine {
 
     try {
       switch (tool) {
+        case "respond_to_user":
+          result = parameters.content || parameters.message || "Không có nội dung phản hồi.";
+          break;
+
+        case "done":
+          result = parameters.summary || "Hoàn tất theo xác nhận của agent.";
+          break;
+
         case "execute_command":
           if (this.isDangerousCommand(parameters.command)) {
             const confirm = await this.rl.question(
@@ -225,7 +233,119 @@ export class AgentEngine {
             if (confirm.toLowerCase() !== "y")
               return "Bị từ chối bởi người dùng.";
           }
-          result = await this.shell.execute(parameters.command);
+          if (parameters.mode === "background") {
+            const backgroundResult = await this.shell.executeBackground(
+              parameters.command,
+              parameters.log_file || "agent_background.log",
+            );
+            const pidMatch = backgroundResult.match(/pid=(\d+)/);
+            const shouldRunHealthCheck =
+              parameters.health_check === true ||
+              typeof parameters.ready_pattern === "string" ||
+              typeof parameters.health_url === "string" ||
+              typeof parameters.health_port === "number";
+
+            if (!shouldRunHealthCheck || !pidMatch) {
+              result = backgroundResult;
+              break;
+            }
+
+            const healthResult = await this.shell.waitForBackgroundHealthy(
+              pidMatch[1],
+              {
+                logFile: parameters.log_file || "agent_background.log",
+                timeoutMs:
+                  typeof parameters.health_timeout_ms === "number"
+                    ? parameters.health_timeout_ms
+                    : 120000,
+                intervalMs:
+                  typeof parameters.health_interval_ms === "number"
+                    ? parameters.health_interval_ms
+                    : 2500,
+                readyPattern:
+                  typeof parameters.ready_pattern === "string"
+                    ? parameters.ready_pattern
+                    : undefined,
+                healthUrl:
+                  typeof parameters.health_url === "string"
+                    ? parameters.health_url
+                    : undefined,
+                healthPort:
+                  typeof parameters.health_port === "number"
+                    ? parameters.health_port
+                    : undefined,
+              },
+            );
+
+            const shouldAutoCleanup =
+              parameters.auto_cleanup_on_unhealthy !== false;
+            let cleanupLine = "AUTO_CLEANUP=skipped";
+            if (
+              shouldAutoCleanup &&
+              (healthResult.status === "timeout" ||
+                healthResult.status === "unhealthy")
+            ) {
+              const cleanupResult = await this.shell.stopBackgroundProcess(
+                pidMatch[1],
+              );
+              cleanupLine = [
+                "AUTO_CLEANUP=executed",
+                `CLEANUP_STATUS=${cleanupResult.status}`,
+                `CLEANUP_MESSAGE=${cleanupResult.message}`,
+              ].join(" ");
+            }
+
+            result = [
+              backgroundResult,
+              `HEALTH_STATUS=${healthResult.status}`,
+              `HEALTH_REASON=${healthResult.reason}`,
+              `HEALTH_ELAPSED_MS=${healthResult.elapsedMs}`,
+              `HEALTH_CHECKS=${healthResult.checks.join(",") || "none"}`,
+              `HEALTH_LOG_TAIL=${healthResult.recentLog || "Không có log."}`,
+              cleanupLine,
+            ].join("\n");
+            break;
+          }
+
+          const timeoutMs =
+            typeof parameters.timeout_ms === "number"
+              ? parameters.timeout_ms
+              : 300000;
+          const commandResult = await this.shell.executeWithMeta(
+            parameters.command,
+            timeoutMs,
+          );
+
+          const hasOutput = Boolean(commandResult.output?.trim());
+          const shouldVerify =
+            commandResult.status === "success" &&
+            (!hasOutput || parameters.always_verify === true) &&
+            typeof parameters.verify_command === "string" &&
+            parameters.verify_command.trim().length > 0;
+
+          if (shouldVerify) {
+            const verifyResult = await this.shell.executeWithMeta(
+              parameters.verify_command,
+              Math.min(timeoutMs, 120000),
+            );
+            result = [
+              `COMMAND_STATUS=${commandResult.status}`,
+              `EXIT_CODE=${commandResult.exitCode}`,
+              `DURATION_MS=${commandResult.durationMs}`,
+              `OUTPUT=${commandResult.output || "Không có output."}`,
+              `VERIFY_STATUS=${verifyResult.status}`,
+              `VERIFY_EXIT_CODE=${verifyResult.exitCode}`,
+              `VERIFY_OUTPUT=${verifyResult.output || "Không có output."}`,
+            ].join("\n");
+            break;
+          }
+
+          result = [
+            `COMMAND_STATUS=${commandResult.status}`,
+            `EXIT_CODE=${commandResult.exitCode}`,
+            `DURATION_MS=${commandResult.durationMs}`,
+            `OUTPUT=${commandResult.output || "Không có output."}`,
+          ].join("\n");
           break;
 
         case "file_operation":
@@ -240,7 +360,7 @@ export class AgentEngine {
 
         case "search_grep":
         case "search_code":
-          const query = parameters.query;
+          const query = (parameters.query || "").replace(/"/g, '\\"');
           const searchPath = parameters.path || ".";
           const grepCmd = `grep -rnI "${query}" ${searchPath} --exclude-dir={.git,node_modules,dist,build} | head -n 50`;
           result = await this.shell.execute(grepCmd);
@@ -324,8 +444,32 @@ export class AgentEngine {
   private pruneContext(aggressive = false) {
     if (this.messages.length > (aggressive ? 10 : 35)) {
       const count = aggressive ? 10 : 2;
-      this.messages.splice(1, count); // Giữ tin nhắn System ở index 0
-      this.logActivity("PRUNE", `Đã xóa ${count} tin nhắn cũ.`);
+      const keepRecentNonSystem = aggressive ? 4 : 12;
+
+      // Chi xoa message khong phai system va khong nam trong N message moi nhat.
+      const nonSystemIndices: number[] = [];
+      for (let i = 0; i < this.messages.length; i++) {
+        if (this.messages[i]?.role !== "system") {
+          nonSystemIndices.push(i);
+        }
+      }
+
+      const protectedIndices = new Set(
+        nonSystemIndices.slice(-keepRecentNonSystem),
+      );
+
+      let removed = 0;
+      for (let i = 0; i < this.messages.length && removed < count; i++) {
+        if (
+          this.messages[i]?.role !== "system" &&
+          !protectedIndices.has(i)
+        ) {
+          this.messages.splice(i, 1);
+          removed++;
+          i--;
+        }
+      }
+      this.logActivity("PRUNE", `Đã xóa ${removed} tin nhắn cũ.`);
     }
   }
 
