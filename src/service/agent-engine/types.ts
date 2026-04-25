@@ -1,4 +1,4 @@
-export type AgentRole = "system" | "user" | "agent";
+export type AgentRole = "system" | "user" | "assistant";
 
 export interface AgentMessage {
   role: AgentRole;
@@ -14,3 +14,11 @@ export interface AgentDecision {
 export interface AddStepOptions {
   includeSystemResult?: boolean;
 }
+
+export type AssistantEventType =
+  | "decision"
+  | "tool_result"
+  | "warning"
+  | "error"
+  | "task_state"
+  | "system_feedback";

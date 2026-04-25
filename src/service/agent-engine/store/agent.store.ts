@@ -3,6 +3,7 @@ import type {
   AgentDecision,
   AgentMessage,
   AgentRole,
+  AssistantEventType,
 } from "../types.js";
 
 export class AgentStore {
@@ -37,6 +38,19 @@ export class AgentStore {
     }
 
     this.messages.push({ role, content: normalized });
+  }
+
+  pushAssistantEvent(
+    type: AssistantEventType,
+    payload: Record<string, any>,
+    options: { mergeWithPrevious?: boolean } = {},
+  ) {
+    const event = {
+      type,
+      timestamp: new Date().toISOString(),
+      payload,
+    };
+    this.pushMessage("assistant", JSON.stringify(event), options);
   }
 
   detectLoop(currentHash: string): boolean {
@@ -96,16 +110,72 @@ export class AgentStore {
         result.substring(result.length - 1500);
     }
 
-    this.pushMessage("agent", JSON.stringify(decision), {
-      mergeWithPrevious: false,
-    });
+    this.pushAssistantEvent(
+      "decision",
+      {
+        thought: decision.thought ?? "",
+        tool: decision.tool,
+        parameters: decision.parameters ?? {},
+      },
+      {
+        mergeWithPrevious: false,
+      },
+    );
 
     if (includeSystemResult) {
-      this.pushMessage("user", `Kết quả hệ thống: ${optimizedResult}`, {
-        mergeWithPrevious: false,
-      });
+      this.pushAssistantEvent(
+        "tool_result",
+        {
+          tool: decision.tool,
+          result: optimizedResult,
+          truncated: result.length > MAX_LOG_LENGTH,
+        },
+        {
+          mergeWithPrevious: false,
+        },
+      );
     }
 
     this.pruneContext(false);
+  }
+
+  addWarning(message: string) {
+    this.pushAssistantEvent(
+      "warning",
+      { message },
+      {
+        mergeWithPrevious: false,
+      },
+    );
+  }
+
+  addError(message: string) {
+    this.pushAssistantEvent(
+      "error",
+      { message },
+      {
+        mergeWithPrevious: false,
+      },
+    );
+  }
+
+  addTaskState(state: string, detail?: string) {
+    this.pushAssistantEvent(
+      "task_state",
+      { state, detail: detail ?? "" },
+      {
+        mergeWithPrevious: false,
+      },
+    );
+  }
+
+  addSystemFeedback(message: string) {
+    this.pushAssistantEvent(
+      "system_feedback",
+      { message },
+      {
+      mergeWithPrevious: false,
+      },
+    );
   }
 }

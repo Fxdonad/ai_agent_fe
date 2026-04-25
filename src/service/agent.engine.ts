@@ -85,10 +85,8 @@ export class AgentEngine {
             console.log(
               "\n⚠️ Cảnh báo: LLM trả về format không hợp lệ. Đang yêu cầu AI định dạng lại...",
             );
-            this.store.pushMessage(
-              "agent",
+            this.store.addSystemFeedback(
               "Lỗi định dạng: Bạn phải trả về JSON đúng schema. Hãy thử lại.",
-              { mergeWithPrevious: false },
             );
             continue;
           }
@@ -101,7 +99,7 @@ export class AgentEngine {
           if (this.store.detectLoop(actionHash)) {
             const warning =
               "\n⚠️ HỆ THỐNG: Bạn đang lặp lại hành động. Hãy đổi cách tiếp cận hoặc dùng 'ask_human'.";
-            this.store.pushMessage("agent", warning, { mergeWithPrevious: false });
+            this.store.addWarning(warning);
             console.log(warning);
             continue;
           }
@@ -139,10 +137,9 @@ export class AgentEngine {
         console.log(
           "⚠️ Đã đạt giới hạn 100 lượt cho nhiệm vụ hiện tại. Vui lòng nhập yêu cầu mới.",
         );
-        this.store.pushMessage(
-          "agent",
+        this.store.addTaskState(
+          "paused_max_turn_reached",
           "Nhiệm vụ tạm dừng vì đã đạt giới hạn 100 lượt.",
-          { mergeWithPrevious: false },
         );
       }
 
