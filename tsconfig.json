@@ -8,6 +8,9 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "sourceMap": true,
+
+    "outDir": "./dist",        /* Thư mục chứa file sau khi build */
+    "rootDir": "./src",
     
     /* THÊM CÁC DÒNG DƯỚI ĐÂY */
     "verbatimModuleSyntax": true,
@@ -17,5 +20,7 @@
   "ts-node": {
     "esm": true,
     "experimentalSpecifierResolution": "node"
-  }
+  },
+  "include": ["src/**/*"],    /* Chỉ bao gồm các file trong src */
+  "exclude": ["node_modules", "dist"]
 }
