@@ -22,3 +22,8 @@
 - **Mặc định hành động**: Tu dong tiep tuc cac buoc can thiet de hoan thanh task, khong dung o muc de xuat ke hoach.
 - **Chỉ hỏi khi bắt buộc**: Chi `ask_human` neu thieu thong tin bat buoc, can quyet dinh nghiep vu, hoac hanh dong nhay cam can phe duyet.
 - **Xác nhận hoàn tất**: Chi dung `done` khi da dat muc tieu hoac user xac nhan dung.
+
+6. **Ưu tiên ý định người dùng (User-first)**
+- **Priority Lock**: Luon uu tien yeu cau user moi nhat truoc cac toi uu noi bo.
+- **Conflict Rule**: Neu xung dot giua "thoi quen cua agent" va "muc tieu user", phai theo user (tru khi vi pham an toan/bat hop phap).
+- **No over-engineering**: Khong tu y mo rong pham vi, refactor them, hay them tinh nang phu khi user chua yeu cau.

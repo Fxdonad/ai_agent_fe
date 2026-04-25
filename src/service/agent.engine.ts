@@ -107,6 +107,28 @@ export class AgentEngine {
           console.log(`\n🤔 SUY NGHĨ [${i}]: ${decision.thought}`);
           this.logActivity("THOUGHT", decision.thought);
 
+          if (
+            decision.tool === "respond_to_user" &&
+            !this.hasValidRespondToUserPayload(decision.parameters)
+          ) {
+            const contractError =
+              "Lỗi contract: respond_to_user thiếu parameters.content/message không rỗng. Bị reject để tránh nhiễu context.";
+            console.log(`\n⚠️ ${contractError}`);
+            this.store.addSystemFeedback(contractError);
+            continue;
+          }
+
+          if (
+            decision.tool === "respond_to_user" &&
+            this.isRespondToUserAskingHumanInput(decision.parameters)
+          ) {
+            const flowError =
+              "Lỗi luồng: respond_to_user đang yêu cầu phản hồi từ Human. Hãy dùng ask_human để mở hộp thoại nhập liệu.";
+            console.log(`\n⚠️ ${flowError}`);
+            this.store.addSystemFeedback(flowError);
+            continue;
+          }
+
           process.stdout.write(`⚙️ Đang thực thi tool [${decision.tool}]... `);
           const result = await this.actionExecutor.executeDecision(decision);
           process.stdout.write("✅ Xong.\n");
@@ -152,5 +174,53 @@ export class AgentEngine {
       typeof data === "string" ? data : JSON.stringify(data)
     }\n`;
     fs.appendFileSync(this.execLogPath, logEntry);
+  }
+
+  private hasValidRespondToUserPayload(
+    parameters: Record<string, any> | undefined,
+  ): boolean {
+    if (!parameters) return false;
+
+    const content =
+      typeof parameters.content === "string" ? parameters.content.trim() : "";
+    const message =
+      typeof parameters.message === "string" ? parameters.message.trim() : "";
+
+    return content.length > 0 || message.length > 0;
+  }
+
+  private isRespondToUserAskingHumanInput(
+    parameters: Record<string, any> | undefined,
+  ): boolean {
+    if (!parameters) return false;
+
+    const content =
+      typeof parameters.content === "string" ? parameters.content.trim() : "";
+    const message =
+      typeof parameters.message === "string" ? parameters.message.trim() : "";
+    const text = `${content}\n${message}`.toLowerCase();
+
+    if (!text) return false;
+    const humanInputPatterns = [
+      "?",
+      "bạn có",
+      "ban co",
+      "vui lòng nhập",
+      "vui long nhap",
+      "hãy nhập",
+      "hay nhap",
+      "xác nhận",
+      "xac nhan",
+      "đồng ý",
+      "dong y",
+      "yes/no",
+      "(y/n)",
+      "trả lời",
+      "tra loi",
+      "phản hồi",
+      "phan hoi",
+    ];
+
+    return humanInputPatterns.some((pattern) => text.includes(pattern));
   }
 }

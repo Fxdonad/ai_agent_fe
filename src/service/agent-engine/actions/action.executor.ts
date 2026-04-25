@@ -29,7 +29,8 @@ export class ActionExecutor {
           result =
             parameters.content ||
             parameters.message ||
-            "Không có nội dung phản hồi.";
+            "Lỗi: respond_to_user thiếu parameters.content hoặc parameters.message";
+          console.log(`\n💬 AGENT: ${result}`);
           break;
 
         case "done":
