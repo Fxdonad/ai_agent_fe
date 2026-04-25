@@ -140,6 +140,11 @@ export class AgentEngine {
             break;
           }
 
+          if (decision.tool === "ask_human") {
+            this.store.addStep(decision, result, { resultRole: "user" });
+            continue;
+          }
+
           this.store.addStep(decision, result);
         } catch (err: any) {
           console.log(`\n💥 Lỗi: ${err.message}`);

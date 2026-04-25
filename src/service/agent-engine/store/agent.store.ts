@@ -102,6 +102,7 @@ export class AgentStore {
     const MAX_LOG_LENGTH = 4000;
     let optimizedResult = result;
     const includeSystemResult = options.includeSystemResult ?? true;
+    const resultRole = options.resultRole ?? "assistant";
 
     if (result.length > MAX_LOG_LENGTH) {
       optimizedResult =
@@ -123,17 +124,23 @@ export class AgentStore {
     );
 
     if (includeSystemResult) {
-      this.pushAssistantEvent(
-        "tool_result",
-        {
-          tool: decision.tool,
-          result: optimizedResult,
-          truncated: result.length > MAX_LOG_LENGTH,
-        },
-        {
+      if (resultRole === "assistant") {
+        this.pushAssistantEvent(
+          "tool_result",
+          {
+            tool: decision.tool,
+            result: optimizedResult,
+            truncated: result.length > MAX_LOG_LENGTH,
+          },
+          {
+            mergeWithPrevious: false,
+          },
+        );
+      } else {
+        this.pushMessage(resultRole, optimizedResult, {
           mergeWithPrevious: false,
-        },
-      );
+        });
+      }
     }
 
     this.pruneContext(false);

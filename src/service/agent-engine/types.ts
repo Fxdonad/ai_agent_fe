@@ -13,6 +13,7 @@ export interface AgentDecision {
 
 export interface AddStepOptions {
   includeSystemResult?: boolean;
+  resultRole?: AgentRole;
 }
 
 export type AssistantEventType =
