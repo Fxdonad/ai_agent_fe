@@ -31,6 +31,8 @@ export const Nemotron3Nano4bConfig = {
               // Gom nhóm các tham số vào một object phẳng
               command: { type: "string" },
               query: { type: "string" },
+              message: { type: "string" },
+              summary: { type: "string" },
               action: {
                 type: "string",
                 enum: ["read", "write", "delete", "mkdir", "list"],

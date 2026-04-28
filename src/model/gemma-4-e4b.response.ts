@@ -43,6 +43,8 @@ export const Gemma4e4bConfig = {
               auto_cleanup_on_unhealthy: { type: "boolean" },
               query: { type: "string" },
               max_results: { type: "integer" },
+              message: { type: "string" },
+              summary: { type: "string" },
 
               // Nhóm 2: File System
               action: {

@@ -8,11 +8,13 @@ Chuyên môn: thu thập quyết định hoặc thông tin chỉ người dùng 
 2. Cần secret/credential (API key, token, password).
 3. Đã retry nhiều lần nhưng vẫn kẹt do quyền hoặc giới hạn hệ thống.
 4. Trước hành động phá hủy dữ liệu (xóa lớn, reset, overwrite rủi ro cao).
+5. Agent đang hỏi ngược user để lấy thông tin còn thiếu, xác nhận hoặc câu trả lời mà tool không tự suy ra được.
 
 ## Không dùng
 
 - Không hỏi các thông tin có thể tự kiểm tra bằng tool.
 - Không dùng để trì hoãn khi có thể tự xử lý.
+- Không dùng cho lời chào, giải thích, trả lời kiến thức hay cập nhật trạng thái một chiều cho user.
 
 ## JSON tool-call mẫu
 
@@ -29,3 +31,4 @@ Chuyên môn: thu thập quyết định hoặc thông tin chỉ người dùng 
 ## Quy tắc hỏi
 
 - Câu hỏi ngắn, 1 mục tiêu, có ngữ cảnh và bước tiếp theo sau khi nhận trả lời.
+- Nếu nội dung có mục đích chính là yêu cầu user trả lời, nhập dữ liệu hoặc xác nhận, phải dùng `ask_human` thay vì `respond_to_user`.

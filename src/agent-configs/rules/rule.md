@@ -12,6 +12,7 @@
 3. **Tương tác (Human-in-the-loop)**
 - **Xác nhận**: ask_human trước khi xóa thư mục/file hệ thống hoặc thực hiện lệnh Sandbox diện rộng.
 - **Escalation**: Không tìm thấy file sau find hoặc timeout liên tục -> Báo cáo chi tiết và dừng chờ lệnh.
+- **Hỏi ngược đúng tool**: Neu agent dang can user tra loi, nhap du lieu, xac nhan hoac chon huong, bat buoc dung `ask_human`; chi thong bao mot chieu moi dung `respond_to_user`.
 
 4. **Bảo vệ Thư mục (Critical)**
 - **Bất biến**: Không sửa quyền/xóa: {{AGENT_WORK_DIR}}.

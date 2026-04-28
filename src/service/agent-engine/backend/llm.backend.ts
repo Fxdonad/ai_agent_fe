@@ -5,7 +5,7 @@ import type { AgentDecision, AgentMessage } from "../types.js";
 export class LlmBackend {
   constructor(
     private readonly lmsUrl: string,
-    private readonly getMessages: () => AgentMessage[],
+    private readonly buildMessages: () => AgentMessage[],
     private readonly logActivity: (type: string, data: any) => void,
     private readonly pruneContext: (aggressive?: boolean) => void,
   ) {}
@@ -21,7 +21,7 @@ export class LlmBackend {
         this.lmsUrl,
         {
           model: Gemma4e4bConfig.modelName,
-          messages: this.getMessages(),
+          messages: this.buildMessages(),
           temperature: 0.1,
           response_format: Gemma4e4bConfig.structureResponse,
         },
