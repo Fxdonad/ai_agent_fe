@@ -68,7 +68,7 @@ export class AgentEngine {
 
     while (goal) {
       this.store.pushMessage("user", goal, { mergeWithPrevious: false });
-      this.store.setCurrentGoal(goal);
+      this.store.setCurrentGoal(goal, { resetContext: true });
       this.logActivity("GOAL", goal);
       this.store.resetActionHistory();
 
@@ -155,6 +155,19 @@ export class AgentEngine {
           }
 
           this.store.addStep(decision, result);
+
+          if (decision.tool === "respond_to_user") {
+            const followUp = await this.openHumanFollowUpDialog();
+            if (!followUp) {
+              taskCompleted = true;
+              break;
+            }
+
+            this.store.pushMessage("user", followUp, { mergeWithPrevious: false });
+            this.store.setCurrentGoal(followUp, { resetContext: false });
+            this.logActivity("GOAL", followUp);
+            this.store.resetActionHistory();
+          }
         } catch (err: any) {
           console.log(`\n💥 Lỗi: ${err.message}`);
           const errorMsg = `Lỗi hệ thống: ${err.message}`;
@@ -195,6 +208,15 @@ export class AgentEngine {
       conversation: this.store.getConversationWindow(),
       taskSnapshot: this.store.getTaskSnapshot(),
     });
+  }
+
+  private async openHumanFollowUpDialog(): Promise<string> {
+    console.log("\n--- CHỜ PHẢN HỒI ---");
+    return (
+      await this.rl.question(
+        "❓ AGENT ĐÃ PHẢN HỒI. Bạn muốn bổ sung hoặc hỏi tiếp gì không?\n👉 Trả lời (Enter để kết thúc nhiệm vụ hiện tại): ",
+      )
+    ).trim();
   }
 
   private hasValidRespondToUserPayload(

@@ -18,8 +18,12 @@ export class AgentStore {
     latestUserMessage: "",
     lastTool: "",
     lastOutcome: "",
+    pendingStep: "",
     blockers: [],
     recentActions: [],
+    recentActionDetails: [],
+    recentDecisions: [],
+    modelFeedback: [],
     activeIntent: "general",
     activeTools: [],
   };
@@ -48,6 +52,9 @@ export class AgentStore {
       ...this.taskSnapshot,
       blockers: [...this.taskSnapshot.blockers],
       recentActions: [...this.taskSnapshot.recentActions],
+      recentActionDetails: [...this.taskSnapshot.recentActionDetails],
+      recentDecisions: [...this.taskSnapshot.recentDecisions],
+      modelFeedback: [...this.taskSnapshot.modelFeedback],
       activeTools: [...this.taskSnapshot.activeTools],
     };
   }
@@ -56,15 +63,23 @@ export class AgentStore {
     this.actionHistory = [];
   }
 
-  setCurrentGoal(goal: string) {
+  setCurrentGoal(goal: string, options: { resetContext?: boolean } = {}) {
     const normalized = goal?.trim();
     if (!normalized) return;
+    const shouldReset = options.resetContext ?? true;
 
     this.taskSnapshot.currentGoal = normalized;
     this.taskSnapshot.latestUserMessage = normalized;
-    this.taskSnapshot.lastOutcome = "";
-    this.taskSnapshot.blockers = [];
-    this.taskSnapshot.recentActions = [];
+    if (shouldReset) {
+      this.taskSnapshot.lastTool = "";
+      this.taskSnapshot.lastOutcome = "";
+      this.taskSnapshot.pendingStep = "";
+      this.taskSnapshot.blockers = [];
+      this.taskSnapshot.recentActions = [];
+      this.taskSnapshot.recentActionDetails = [];
+      this.taskSnapshot.recentDecisions = [];
+      this.taskSnapshot.modelFeedback = [];
+    }
   }
 
   updateTaskSnapshot(partial: Partial<TaskSnapshot>) {
@@ -73,6 +88,10 @@ export class AgentStore {
       ...partial,
       blockers: partial.blockers ?? this.taskSnapshot.blockers,
       recentActions: partial.recentActions ?? this.taskSnapshot.recentActions,
+      recentActionDetails:
+        partial.recentActionDetails ?? this.taskSnapshot.recentActionDetails,
+      recentDecisions: partial.recentDecisions ?? this.taskSnapshot.recentDecisions,
+      modelFeedback: partial.modelFeedback ?? this.taskSnapshot.modelFeedback,
       activeTools: partial.activeTools ?? this.taskSnapshot.activeTools,
     };
   }
@@ -166,7 +185,8 @@ export class AgentStore {
       },
     );
 
-    this.rememberAction(decision.tool);
+    this.rememberDecision(decision);
+    this.rememberAction(decision.tool, optimizedResult);
     this.taskSnapshot.lastTool = decision.tool;
 
     if (includeSystemResult) {
@@ -196,10 +216,12 @@ export class AgentStore {
     }
 
     this.taskSnapshot.lastOutcome = this.toCompactSummary(optimizedResult);
+    this.taskSnapshot.pendingStep = this.inferPendingStep(decision.tool, optimizedResult);
     this.pruneContext(false);
   }
 
   addWarning(message: string) {
+    this.pushModelFeedback(message);
     this.pushAssistantEvent(
       "warning",
       { message },
@@ -210,6 +232,7 @@ export class AgentStore {
   }
 
   addError(message: string) {
+    this.pushModelFeedback(message);
     this.pushAssistantEvent(
       "error",
       { message },
@@ -232,6 +255,7 @@ export class AgentStore {
 
   addSystemFeedback(message: string) {
     this.updateBlockersFromState("system_feedback", message);
+    this.pushModelFeedback(message);
     this.pushAssistantEvent(
       "system_feedback",
       { message },
@@ -241,11 +265,27 @@ export class AgentStore {
     );
   }
 
-  private rememberAction(tool: string) {
+  private rememberAction(tool: string, result: string) {
     if (!tool) return;
     this.taskSnapshot.recentActions = [
-      ...this.taskSnapshot.recentActions.slice(-5),
+      ...this.taskSnapshot.recentActions.slice(-1),
       tool,
+    ];
+    this.taskSnapshot.recentActionDetails = [
+      ...this.taskSnapshot.recentActionDetails.slice(-1),
+      `${tool}: ${this.toCompactSummary(result) || "no result"}`.slice(0, 220),
+    ];
+  }
+
+  private rememberDecision(decision: AgentDecision) {
+    const summary = [
+      `tool=${decision.tool}`,
+      decision.parameters ? `params=${JSON.stringify(decision.parameters)}` : "params={}",
+    ].join(" ");
+
+    this.taskSnapshot.recentDecisions = [
+      ...this.taskSnapshot.recentDecisions.slice(-1),
+      summary.slice(0, 220),
     ];
   }
 
@@ -274,5 +314,29 @@ export class AgentStore {
       ...this.taskSnapshot.blockers.slice(-2),
       normalized.slice(0, 180),
     ];
+  }
+
+  private pushModelFeedback(message: string) {
+    const normalized = message?.trim();
+    if (!normalized) return;
+
+    this.taskSnapshot.modelFeedback = [
+      ...this.taskSnapshot.modelFeedback.slice(-1),
+      normalized.slice(0, 220),
+    ];
+  }
+
+  private inferPendingStep(tool: string, result: string): string {
+    const summary = this.toCompactSummary(result);
+
+    if (tool === "respond_to_user" || tool === "done") {
+      return "Chờ phản hồi tiếp theo từ human.";
+    }
+
+    if (!summary) {
+      return `Cần đánh giá kết quả của ${tool} và chọn bước tiếp theo.`;
+    }
+
+    return `Dựa trên kết quả ${tool}, hãy thực hiện bước hợp lý tiếp theo thay vì lặp lại cùng hành động.`;
   }
 }

@@ -46,6 +46,10 @@ export class ContextAssembler {
       latestUserMessage,
       taskSnapshot.lastTool,
       taskSnapshot.lastOutcome,
+      taskSnapshot.pendingStep,
+      ...taskSnapshot.modelFeedback,
+      ...taskSnapshot.recentDecisions,
+      ...taskSnapshot.recentActionDetails,
     ]
       .join(" ")
       .toLowerCase();

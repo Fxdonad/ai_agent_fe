@@ -117,6 +117,18 @@ export class PromptManager {
       taskSnapshot.recentActions.length > 0
         ? taskSnapshot.recentActions.join(" -> ")
         : "none";
+    const recentActionDetails =
+      taskSnapshot.recentActionDetails.length > 0
+        ? taskSnapshot.recentActionDetails.map((item) => `- ${item}`).join("\n")
+        : "- none";
+    const recentDecisions =
+      taskSnapshot.recentDecisions.length > 0
+        ? taskSnapshot.recentDecisions.map((item) => `- ${item}`).join("\n")
+        : "- none";
+    const modelFeedback =
+      taskSnapshot.modelFeedback.length > 0
+        ? taskSnapshot.modelFeedback.map((item) => `- ${item}`).join("\n")
+        : "- none";
 
     return `
       ## TASK SNAPSHOT
@@ -126,7 +138,14 @@ export class PromptManager {
       - active_tools: ${activeTools.join(", ") || "none"}
       - last_tool: ${taskSnapshot.lastTool || "none"}
       - last_outcome: ${taskSnapshot.lastOutcome || "none"}
+      - pending_step: ${taskSnapshot.pendingStep || "none"}
       - recent_actions: ${recentActions}
+      - recent_decisions:
+      ${recentDecisions}
+      - recent_action_details:
+      ${recentActionDetails}
+      - recent_model_feedback:
+      ${modelFeedback}
       - blockers:
       ${blockers}
     `.trim();

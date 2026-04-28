@@ -22,8 +22,12 @@ export interface TaskSnapshot {
   latestUserMessage: string;
   lastTool: string;
   lastOutcome: string;
+  pendingStep: string;
   blockers: string[];
   recentActions: string[];
+  recentActionDetails: string[];
+  recentDecisions: string[];
+  modelFeedback: string[];
   activeIntent: string;
   activeTools: string[];
 }
