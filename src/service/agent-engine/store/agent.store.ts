@@ -34,7 +34,7 @@ export class AgentStore {
     return this.messages;
   }
 
-  getConversationWindow(limit = 8): AgentMessage[] {
+  getConversationWindow(limit = 12): AgentMessage[] {
     return limit > 0 ? this.messages.slice(-limit) : [];
   }
 
@@ -150,10 +150,20 @@ export class AgentStore {
 
   pruneContext(aggressive = false) {
     const maxMessages = aggressive ? 8 : 20;
+    
     if (this.messages.length > maxMessages) {
-      const removed = this.messages.length - maxMessages;
-      this.messages.splice(0, removed);
-      this.logActivity("PRUNE", `Đã xóa ${removed} tin nhắn cũ.`);
+      // Tính toán số lượng tin nhắn cần loại bỏ
+      const countToRemove = this.messages.length - maxMessages;
+      
+      // Sử dụng splice(0, countToRemove) để xóa từ đầu mảng (những tin nhắn cũ nhất)
+      // Mảng messages sau đó sẽ chỉ còn lại các phần tử cuối (mới nhất)
+      const removedMessages = this.messages.splice(0, countToRemove);
+      
+      this.logActivity(
+        "PRUNE", 
+        `Ngữ cảnh quá đầy (${this.messages.length + countToRemove} messages). ` +
+        `Đã xóa ${countToRemove} tin nhắn cũ nhất. Giữ lại ${this.messages.length} tin nhắn mới.`
+      );
     }
   }
 
@@ -189,27 +199,28 @@ export class AgentStore {
     this.rememberAction(decision.tool, optimizedResult);
     this.taskSnapshot.lastTool = decision.tool;
 
+    const actionContext = `[Hành động gần đây: ${this.taskSnapshot.recentActions.join(" -> ")}]`;
     if (includeSystemResult) {
-      if (resultRole === "assistant") {
-        if (decision.tool === "respond_to_user" || decision.tool === "done") {
-          this.pushMessage("assistant", optimizedResult, {
-            mergeWithPrevious: false,
-          });
-        } else {
-          this.pushAssistantEvent(
-            "tool_result",
-            {
-              tool: decision.tool,
-              result: optimizedResult,
-              truncated: result.length > MAX_LOG_LENGTH,
-            },
-            {
-              mergeWithPrevious: false,
-            },
-          );
-        }
+      // Nếu là tool trả kết quả về cho user (kết thúc lượt)
+      if (decision.tool === "respond_to_user" || decision.tool === "done") {
+        this.pushMessage("assistant", optimizedResult, {
+          mergeWithPrevious: false,
+        });
       } else {
-        this.pushMessage(resultRole, optimizedResult, {
+        // Với các tool nội bộ, ta đẩy vào tin nhắn assistant kèm theo suy nghĩ và context 5 hành động
+        const assistantContent = JSON.stringify({
+          thought: decision.thought,
+          tool: decision.tool,
+          parameters: decision.parameters,
+          history_context: actionContext // Thêm context vào payload
+        });
+
+        this.pushMessage("assistant", assistantContent, {
+          mergeWithPrevious: false,
+        });
+
+        // Đẩy kết quả hệ thống cho user role (hoặc system role tùy cấu hình của bạn)
+        this.pushMessage("user", `Kết quả từ ${decision.tool}: ${optimizedResult}`, {
           mergeWithPrevious: false,
         });
       }
@@ -268,11 +279,11 @@ export class AgentStore {
   private rememberAction(tool: string, result: string) {
     if (!tool) return;
     this.taskSnapshot.recentActions = [
-      ...this.taskSnapshot.recentActions.slice(-1),
+      ...this.taskSnapshot.recentActions.slice(-4),
       tool,
     ];
     this.taskSnapshot.recentActionDetails = [
-      ...this.taskSnapshot.recentActionDetails.slice(-1),
+      ...this.taskSnapshot.recentActionDetails.slice(-4),
       `${tool}: ${this.toCompactSummary(result) || "no result"}`.slice(0, 220),
     ];
   }

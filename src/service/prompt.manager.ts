@@ -42,7 +42,7 @@ export class PromptManager {
       ## TOOL CONTRACT
       - Luôn trả về JSON object hợp lệ với 3 key: \`thought\`, \`tool\`, \`parameters\`.
       - Chỉ dùng tool hợp lệ: \`execute_command\`, \`web_search\`, \`search_grep\`, \`search_code\`, \`ask_human\`, \`respond_to_user\`, \`read_structure\`, \`file_operation\`, \`debug_service\`, \`done\`.
-      - Nếu chọn \`respond_to_user\`, bắt buộc có \`parameters.content\` hoặc \`parameters.message\` là chuỗi không rỗng.
+      - Nếu chọn \`respond_to_user\`, bắt buộc có \`parameters.content\` hoặc \`parameters.message\` là chuỗi không rỗng, đi kèm gọi tool \`ask_human\` nếu cần.
       - Chỉ dùng \`done\` khi mục tiêu đã hoàn tất hoặc user xác nhận dừng.
 
       ## ENVIRONMENT
