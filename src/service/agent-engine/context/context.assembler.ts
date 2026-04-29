@@ -59,12 +59,12 @@ export class ContextAssembler {
     let intent = "general";
     let includeCodingStandards = false;
     let includeSelfCorrection = false;
-    let conversationLimit = 8;
+    let conversationLimit = 16;
 
     if (this.matches(combinedText, ["lỗi", "error", "bug", "debug", "log", "trace", "timeout"])) {
       intent = "debug";
       includeSelfCorrection = true;
-      conversationLimit = 6;
+      conversationLimit = 12;
       activeTools.add("debug");
       activeTools.add("search_grep");
       activeTools.add("browser");
@@ -106,7 +106,7 @@ export class ContextAssembler {
     }
 
     if (intent === "general") {
-      conversationLimit = 10;
+      conversationLimit = 20;
     }
 
     activeTools.add("task_mgmt");
